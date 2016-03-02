@@ -196,7 +196,8 @@ void onDelCommand(ClientPacket* packet, void*)
             char* key = r.tokens[i].s;
             int len = r.tokens[i].len;
 
-            ClientPacket* del = new ClientPacket;
+//            ClientPacketPtr del = std::make_shared<ClientPacket>();
+            ClientPacketPtr del = ClientPacket::Construct();
             del->eventLoop = packet->eventLoop;
             del->finished_func = onDelPacketFinished;
             del->finished_arg = delcontext;
@@ -247,6 +248,11 @@ void onShowCommand(ClientPacket* packet, void*)
 
 void onHashMapping(ClientPacket* packet, void*)
 {
+    // prevent modify hash map directly
+    packet->sendBuff.append("-Operation forbidden\r\n");
+    packet->setFinishedState(ClientPacket::RequestFinished);
+    return;
+
     RedisProtoParseResult& request = packet->recvParseResult;
     if (request.tokenCount != 3) {
         packet->sendBuff.append("+Usage:\nHASHMAPPING [hash value] [group name]\n\r\n");
@@ -414,4 +420,56 @@ void onShutDown(ClientPacket* packet, void*)
             exit(0);
         }
     }
+}
+
+RedisServant *CreateRedisServant(EventLoop *ev_loop, string hostname, int port)
+{
+    RedisServant* servant = new RedisServant;
+    RedisServant::Option opt;
+    strcpy(opt.name, hostname.c_str());
+    opt.poolSize = 50;
+    opt.reconnInterval = 3 * 1000;
+    opt.maxReconnCount = 100;
+    servant->setOption(opt);
+    servant->setRedisAddress(HostAddress(hostname.c_str(), port));
+    servant->setEventLoop(ev_loop);
+
+    return servant;
+}
+
+RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port)
+{
+    RedisServantGroup* group = new RedisServantGroup;
+    RedisServantGroupPolicy* policy = RedisServantGroupPolicy::createPolicy("master_only");
+    group->setGroupName(groupName.c_str());
+    group->setPolicy(policy);
+
+    RedisServant *servant = CreateRedisServant(context->eventLoop(), hostname, port);
+    group->addMasterRedisServant(servant);
+
+    group->setEnabled(true);
+
+    return group;
+}
+
+// YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
+void MigrateServer(ClientPacket *packet, void *data)
+{
+    RedisProxy *contex = (RedisProxy *)data;
+
+    RedisProtoParseResult&req = packet->recvParseResult;
+    if (req.tokenCount != 4) {
+        packet->sendBuff.append("-Bad parameters\r\n");
+        packet->setFinishedState(ClientPacket::RequestFinished);
+        return;
+    }
+
+    int slotNum = std::stoi(string(req.tokens[1].s, req.tokens[1].len));
+    string hostname(req.tokens[2].s, req.tokens[2].len);
+    string port(req.tokens[3].s, req.tokens[3].len);
+    RedisServantGroup *group = CreateGroup(contex, "group-mig", hostname, std::stoi(port));
+    contex->SetSlotMigrating(slotNum, group);
+
+    packet->sendBuff.append("+OK\r\n");
+    packet->setFinishedState(ClientPacket::RequestFinished);
 }

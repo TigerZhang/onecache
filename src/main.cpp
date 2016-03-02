@@ -65,7 +65,7 @@ void startOneCache(void)
 
     FileLogger fileLogger;
     if (fileLogger.setFileName(cfg->logFile())) {
-        Logger::log(Logger::Message, "Using the log file(%s) output", fileLogger.fileName());
+        LOG(Logger::Message, "Using the log file(%s) output", fileLogger.fileName());
         Logger::setDefaultLogger(&fileLogger);
     }
 
@@ -146,22 +146,24 @@ int main(int argc, char** argv)
 
     const char* cfgFile = "onecache.xml";
     if (argc == 1) {
-        Logger::log(Logger::Message, "No config file specified. using the default config(%s)", cfgFile);
+        LOG(Logger::Message, "No config file specified. using the default config(%s)", cfgFile);
     } if (argc >= 2) {
         cfgFile = argv[1];
     }
 
     CRedisProxyCfg* cfg = CRedisProxyCfg::instance();
     if (!cfg->loadCfg(cfgFile)) {
-        Logger::log(Logger::Error, "Failed to read config file");
+        LOG(Logger::Error, "Failed to read config file");
         return 1;
     }
 
     const char* errInfo;
     if (!CRedisProxyCfgChecker::isValid(cfg, errInfo)) {
-        Logger::log(Logger::Error, "Invalid configuration: %s", errInfo);
+        LOG(Logger::Error, "Invalid configuration: %s", errInfo);
         return 1;
     }
+
+    cfg->m_operateXmlPointer->xml_print();
 
     //Background
     if (cfg->daemonize()) {

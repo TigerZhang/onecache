@@ -32,7 +32,7 @@ RedisServantGroupPolicy::~RedisServantGroupPolicy(void)
 {
 }
 
-RedisServant *RedisServantGroupPolicy::selectServant(RedisServantGroup*, ClientPacket*)
+RedisServant *RedisServantGroupPolicy::selectServant(RedisServantGroup*, ClientPacketPtr)
 {
     return NULL;
 }

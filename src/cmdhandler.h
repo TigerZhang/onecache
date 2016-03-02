@@ -21,6 +21,7 @@
 #define CMDHANDLER_H
 
 #include "command.h"
+#include "redisproxy.h"
 
 void onStandardKeyCommand(ClientPacket*, void*);
 
@@ -45,5 +46,7 @@ void onShowMapping(ClientPacket* packet, void*);
 void onPoolInfo(ClientPacket* packet, void*);
 
 void onShutDown(ClientPacket* packet, void*);
+
+void MigrateServer(ClientPacket *packet, void *);
 
 #endif

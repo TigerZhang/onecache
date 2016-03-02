@@ -81,4 +81,6 @@ private:
     std::list<RedisCommand*> m_cmds;
 };
 
+typedef ClientPacket* ClientPacketPtr;
+
 #endif

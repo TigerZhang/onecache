@@ -122,13 +122,13 @@ TcpServer::~TcpServer(void)
 bool TcpServer::run(const HostAddress& addr)
 {
     if (isRunning()) {
-        Logger::log(Logger::Error, "TcpServer::run: server is already running");
+        LOG(Logger::Error, "TcpServer::run: server is already running");
         return false;
     }
 
     TcpSocket tcpSocket = TcpSocket::createTcpSocket();
     if (tcpSocket.isNull()) {
-        Logger::log(Logger::Error, "TcpServer::run: %s", strerror(errno));
+        LOG(Logger::Error, "TcpServer::run: %s", strerror(errno));
         return false;
     }
 
@@ -137,14 +137,14 @@ bool TcpServer::run(const HostAddress& addr)
     tcpSocket.setNonBlocking();
 
     if (!tcpSocket.bind(addr)) {
-        Logger::log(Logger::Error, "TcpServer::run: bind failed at port %d: %s",
+        LOG(Logger::Error, "TcpServer::run: bind failed at port %d: %s",
                     addr.port(), strerror(errno));
         tcpSocket.close();
         return false;
     }
 
     if (!tcpSocket.listen(128)) {
-        Logger::log(Logger::Error, "TcpServer::run: listen failed at port %d: %s",
+        LOG(Logger::Error, "TcpServer::run: listen failed at port %d: %s",
                     addr.port(), strerror(errno));
         tcpSocket.close();
         return false;

@@ -25,6 +25,8 @@
 #include "redisproxy.h"
 #include "redis-proxy-config.h"
 
+#include <resp/all.hpp>
+
 ClientPacket::ClientPacket(void)
 {
     commandType = -1;
@@ -65,6 +67,9 @@ RedisProto::ParseState ClientPacket::parseSendBuffer(void)
     RedisProto::ParseState state = RedisProto::parse(sendBuff.data() + sendBufferOffset,
                                                      sendBuff.size() - sendBufferOffset,
                                                      &sendParseResult);
+
+    LOG(Logger::VVVERBOSE, "parse send buf %d", state);
+
     if (state == RedisProto::ProtoOK) {
         sendBufferOffset += sendParseResult.protoBuffLen;
     }
@@ -97,7 +102,54 @@ void ClientPacket::defaultFinishedHandler(ClientPacket *packet, void *)
     packet->server->writeReply(packet);
 }
 
+struct MigrateCommandContext {
+    ClientPacketPtr originPacket;
+    RedisServant *targetRedisServant;
+    RedisServantGroup* origGroup;
+};
 
+void MigrateFinishedHandler(ClientPacketPtr migPacket, void* arg)
+{
+    MigrateCommandContext*migContext = (MigrateCommandContext*)arg;
+    ClientPacketPtr origPacket = migContext->originPacket;
+    RedisServantGroup* origGroup = migContext->origGroup;
+    RedisServant *targetRedisServant = migContext->targetRedisServant;
+
+    // swallow the response of MIGRATE command
+
+    LOG(Logger::VVVERBOSE, "Migrate finish stat %d", migPacket->finishedState);
+
+    if (migPacket->finishedState == ClientPacket::RequestFinished) {
+        // forward command to target server
+        if (targetRedisServant) {
+            targetRedisServant->handle(origPacket);
+        }
+    } else {
+        LOG(Logger::Error, "Migrate failed.\n recv buf %s \n send buf %s",
+                    migPacket->recvBuff.data(), migPacket->sendBuff.data());
+
+        // fail occurred, response error message to origin request
+        origPacket->sendBuff.append("-Migrate failed\r\n");
+        origPacket->setFinishedState(ClientPacket::RequestError);
+        origPacket->server->writeReply(origPacket);
+    }
+
+    delete migContext;
+    delete migPacket;
+}
+
+ClientPacketPtr
+ClientPacket::MakeAPacket(int commandType, ClientPacketPtr refPacket, char *command) {
+
+    ClientPacketPtr pack = ClientPacket::Construct();
+    pack->eventLoop = refPacket->eventLoop;
+    pack->finished_func = defaultFinishedHandler;
+    pack->finished_arg = NULL;
+    pack->commandType = -1;
+    pack->eventLoop = refPacket->eventLoop;
+
+    return pack;
+}
 
 static Monitor dummy;
 RedisProxy::RedisProxy(void)
@@ -107,6 +159,7 @@ RedisProxy::RedisProxy(void)
     m_maxHashValue = DefaultMaxHashValue;
     for (int i = 0; i < MaxHashValue; ++i) {
         m_hashMapping[i] = NULL;
+        m_hashSlotMigrating[i] = NULL;
     }
     m_vipAddress[0] = 0;
     m_vipName[0] = 0;
@@ -133,11 +186,11 @@ bool RedisProxy::run(const HostAddress& addr)
 
     if (m_vipEnabled) {
         TcpSocket sock = TcpSocket::createTcpSocket();
-        Logger::log(Logger::Message, "connect to vip address(%s:%d)...", m_vipAddress, addr.port());
+        LOG(Logger::Message, "connect to vip address(%s:%d)...", m_vipAddress, addr.port());
         if (!sock.connect(HostAddress(m_vipAddress, addr.port()))) {
-            Logger::log(Logger::Message, "set VIP [%s,%s]...", m_vipName, m_vipAddress);
+            LOG(Logger::Message, "set VIP [%s,%s]...", m_vipName, m_vipAddress);
             int ret = NonPortable::setVipAddress(m_vipName, m_vipAddress, 0);
-            Logger::log(Logger::Message, "set_vip_address return %d", ret);
+            LOG(Logger::Message, "set_vip_address return %d", ret);
         } else {
             m_vipSocket = sock;
             m_vipEvent.set(eventLoop(), sock.socket(), EV_READ, vipHandler, this);
@@ -147,7 +200,7 @@ bool RedisProxy::run(const HostAddress& addr)
 
 
     m_monitor->proxyStarted(this);
-    Logger::log(Logger::Message, "Start the %s on port %d", APP_NAME, addr.port());
+    LOG(Logger::Message, "Start the %s on port %d", APP_NAME, addr.port());
 
     RedisCommand cmds[] = {
         {"HASHMAPPING", 11, -1, onHashMapping, NULL},
@@ -155,6 +208,9 @@ bool RedisProxy::run(const HostAddress& addr)
         {"DELKEYMAPPING", 13, -1, onDelKeyMapping, NULL},
         {"SHOWMAPPING", 11, -1, onShowMapping, NULL},
         {"POOLINFO", 8, -1, onPoolInfo, NULL},
+
+        // YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
+        {"YMIGRATE", 8, -1, MigrateServer, this},
         {"SHUTDOWN", 8, -1, onShutDown, this}
     };
     RedisCommandTable::instance()->registerCommand(cmds, sizeof(cmds)/sizeof(RedisCommand));
@@ -167,15 +223,15 @@ void RedisProxy::stop(void)
     TcpServer::stop();
     if (m_vipEnabled) {
         if (!m_vipSocket.isNull()) {
-            Logger::log(Logger::Message, "delete vip...");
+            LOG(Logger::Message, "delete vip...");
             int ret = NonPortable::setVipAddress(m_vipName, m_vipAddress, 1);
-            Logger::log(Logger::Message, "delete vip return %d", ret);
+            LOG(Logger::Message, "delete vip return %d", ret);
 
             m_vipEvent.remove();
             m_vipSocket.close();
         }
     }
-    Logger::log(Logger::Message, "%s has stopped", APP_NAME);
+    LOG(Logger::Message, "%s has stopped", APP_NAME);
 }
 
 void RedisProxy::addRedisGroup(RedisServantGroup *group)
@@ -189,6 +245,7 @@ void RedisProxy::addRedisGroup(RedisServantGroup *group)
 bool RedisProxy::setGroupMappingValue(int hashValue, RedisServantGroup *group)
 {
     if (hashValue >= 0 && hashValue < MaxHashValue) {
+        LOG(Logger::Message, "set group[%d] group %s", hashValue, group ? group->groupName() : "NULL");
         m_hashMapping[hashValue] = group;
         return true;
     }
@@ -214,6 +271,13 @@ RedisServantGroup *RedisProxy::group(const char *name) const
     return NULL;
 }
 
+unsigned int RedisProxy::KeyToIndex(const char* key, int len)
+{
+    unsigned int hash_val = m_hashFunc(key, len);
+    unsigned int idx = hash_val % m_maxHashValue;
+    return idx;
+}
+
 RedisServantGroup *RedisProxy::mapToGroup(const char* key, int len)
 {
     if (!m_keyMapping.empty()) {
@@ -229,13 +293,57 @@ RedisServantGroup *RedisProxy::mapToGroup(const char* key, int len)
     return m_hashMapping[idx];
 }
 
-void RedisProxy::handleClientPacket(const char *key, int len, ClientPacket *packet)
+ClientPacketPtr
+RedisProxy::MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
+                              RedisServantGroup *origGroup,
+                              RedisServantGroup *migrationTargetServantGroup) {
+    // 1. send migrate command to origin redis server
+    RedisServant *rs = migrationTargetServantGroup->findUsableServant(origPacket);
+    HostAddress addr = rs->connectionPool()->redisAddress();
+
+    ClientPacketPtr migPacket = ClientPacket::MakeAPacket(-1, origPacket, NULL);
+    resp::encoder<resp::buffer> enc;
+    // MIGRATE host port key|"" destination-db timeout
+    char port[16];
+    snprintf(port, 16, "%d", addr.port());
+    resp::buffer keyBuf(key, len);
+    std::vector<resp::buffer> buffers = enc.encode("MIGRATE", addr.ip(), port, keyBuf, "0", "3000");
+    std::string command = std::string(buffers.front().data(), buffers.front().size());
+
+    MigrateCommandContext * migCmdCxt = new MigrateCommandContext;
+    migCmdCxt->originPacket = origPacket;
+    migCmdCxt->targetRedisServant = rs;
+    migCmdCxt->origGroup = origGroup;
+
+    migPacket->recvBuff.appendFormatString(command.c_str());
+    migPacket->finished_func = MigrateFinishedHandler;
+    migPacket->finished_arg = migCmdCxt;
+    migPacket->parseRecvBuffer();
+
+    return migPacket;
+
+    // 2. after migration done, send original request to target redis server
+}
+
+void RedisProxy::handleClientPacket(const char *key, int len, ClientPacketPtr packet)
 {
-    RedisServantGroup* group = mapToGroup(key, len);
+    uint index = KeyToIndex(key, len);
+
+    RedisServantGroup* group = m_hashMapping[index];
     if (!group) {
         packet->setFinishedState(ClientPacket::RequestError);
         return;
     }
+
+    RedisProxy *context = (RedisProxy *)packet->server;
+    RedisServantGroup *migrationTargetServantGroup = context->GetSlotMigration(index);
+    LOG(Logger::VVVERBOSE, "slot %d mig %d", index, migrationTargetServantGroup);
+    if (migrationTargetServantGroup != NULL) {
+        LOG(Logger::VVERBOSE, "slot %d is migrating to %s", index, migrationTargetServantGroup->groupName());
+
+        packet = MakeMigratePacket(key/*origin*/, len/*origin*/, packet/*origin*/, group, migrationTargetServantGroup);
+    }
+
     RedisServant* servant = group->findUsableServant(packet);
     if (servant) {
         servant->handle(packet);
@@ -376,9 +484,9 @@ void RedisProxy::vipHandler(socket_t sock, short, void* arg)
     RedisProxy* proxy = (RedisProxy*)arg;
     int ret = ::recv(sock, buff, 64, 0);
     if (ret == 0) {
-        Logger::log(Logger::Message, "disconnected from VIP. change vip address...");
+        LOG(Logger::Message, "disconnected from VIP. change vip address...");
         int ret = NonPortable::setVipAddress(proxy->m_vipName, proxy->m_vipAddress, 0);
-        Logger::log(Logger::Message, "set_vip_address return %d", ret);
+        LOG(Logger::Message, "set_vip_address return %d", ret);
         proxy->m_vipSocket.close();
     }
 }

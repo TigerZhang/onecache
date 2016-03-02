@@ -20,6 +20,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include <memory.h>
+#include <sys/time.h>
 
 #include "util/string.h"
 #include "logger.h"
@@ -29,9 +30,15 @@ Logger* _defaultLogger = &_stdoutput;
 
 static const char* msg_type_text[] =
 {
-    "Message",
+    "CRITAL",
+    "FATA",
+    "Error",
     "Warning",
-    "Error"
+    "INFO",
+    "DEBUG",
+    "VERBOSE",
+    "VVERBOSE",
+    "VVVERBOSE",
 };
 
 Logger::Logger(void)
@@ -44,27 +51,40 @@ Logger::~Logger(void)
 
 void Logger::output(Logger::MsgType type, const char *msg)
 {
-    time_t t = time(NULL);
-    tm* lt = localtime(&t);
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
 
-    printf("[%d-%02d-%02d %02d:%02d:%02d] %s: %s\n",
-           lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
-           lt->tm_hour, lt->tm_min, lt->tm_sec, msg_type_text[type], msg);
+    char buf[256];
+    nc_strftime(buf, 256, "%Y-%m-%d %H:%M:%S", localtime(&tv.tv_sec));
+    printf("%s.%03ld [%s] %s\n",
+            buf, tv.tv_usec/1000, msg_type_text[type], msg);
 }
 
-void Logger::log(Logger::MsgType type, const char *format, ...)
+#define LOG_MAX_LEN 10240
+void Logger::log(Logger::MsgType type, const char *file, int line, const char *format, ...)
 {
     if (!format || !_defaultLogger) {
         return;
     }
 
-    char buffer[10240];
-    va_list marker;
-    va_start(marker, format);
-    vsprintf(buffer, format, marker);
-    va_end(marker);
+    va_list args;
+    struct timeval tv;
+    char buf[LOG_MAX_LEN];
 
-    _defaultLogger->output(type, buffer);
+    int len = 0;            /* length of output buffer */
+    int size = LOG_MAX_LEN; /* size of output buffer */
+
+    gettimeofday(&tv, NULL);
+//    buf[len++] = '[';
+//    len += nc_strftime(buf + len, size - len, "%Y-%m-%d %H:%M:%S.", localtime(&tv.tv_sec));
+//    len += nc_scnprintf(buf + len, size - len, "%03ld", tv.tv_usec/1000);
+    len += nc_scnprintf(buf + len, size - len, "%s:%d ", file, line);
+
+    va_start(args, format);
+    len += vsnprintf(buf + len, size - len, format, args);
+    va_end(args);
+
+    _defaultLogger->output(type, buf);
 }
 
 Logger *Logger::defaultLogger(void)

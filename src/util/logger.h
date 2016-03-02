@@ -22,13 +22,49 @@
 
 #include <stdio.h>
 
+#define nc_snprintf(_s, _n, ...)        \
+    snprintf((char *)(_s), (size_t)(_n), __VA_ARGS__)
+
+#define nc_scnprintf(_s, _n, ...)       \
+    snprintf((char *)(_s), (size_t)(_n), __VA_ARGS__)
+
+#define nc_vsnprintf(_s, _n, _f, _a)    \
+    vsnprintf((char *)(_s), (size_t)(_n), _f, _a)
+
+#define nc_vscnprintf(_s, _n, _f, _a)   \
+    snprintf((char *)(_s), (size_t)(_n), _f, _a)
+
+#define nc_strftime(_s, _n, fmt, tm)        \
+    (int)strftime((char *)(_s), (size_t)(_n), fmt, tm)
+
+#include <string.h>
+#define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+static int log_loggable(int)
+{
+    return 1;
+}
+
+#define log_vvv(...) do {                                                  \
+    if (log_loggable(Logger::VVVERBOSE) != 0) {                                      \
+        Logger::log2(__FILE__, __LINE__, __VA_ARGS__);                           \
+    }                                                                       \
+} while (0)
+
 class Logger
 {
 public:
     enum MsgType {
-        Message = 0,
-        Warning = 1,
-        Error = 2
+        CRITAL  = 0,
+        FATA    = 1,
+        Error   = 2,
+        Warning = 3,
+        INFO    = 4,
+        Message = 4,
+        DEBUG   = 5,
+        VERBOSE = 6,
+        VVERBOSE = 7,
+        VVVERBOSE = 8,
     };
 
     Logger(void);
@@ -38,7 +74,8 @@ public:
     virtual void output(MsgType type, const char* msg);
 
     //Output function
-    static void log(MsgType type, const char* format, ...);
+    static void log(MsgType type, const char *file, int line, const char* format, ...);
+#define LOG(type, ...) do { Logger::log(type, __FILENAME__, __LINE__, __VA_ARGS__); } while(0);
 
     //Default logger
     static Logger* defaultLogger(void);

@@ -36,7 +36,7 @@ bool RedisConnection::connect(const HostAddress& addr)
     socketlen_t len = sizeof(timeval);
     TcpSocket sock = TcpSocket::createTcpSocket();
     if (sock.isNull()) {
-        Logger::log(Logger::Error, "RedisConnection::connect: %s", strerror(errno));
+        LOG(Logger::Error, "RedisConnection::connect: %s", strerror(errno));
         return false;
     }
 
@@ -45,7 +45,7 @@ bool RedisConnection::connect(const HostAddress& addr)
     timeval sndTimeout = {1, 0};
     sock.setOption(SOL_SOCKET, SO_SNDTIMEO, (char*)&sndTimeout, sizeof(timeval));
     if (!sock.connect(addr)) {
-        Logger::log(Logger::Error, "RedisConnection::connect: %s", strerror(errno));
+        LOG(Logger::Error, "RedisConnection::connect: %s", strerror(errno));
         sock.close();
         return false;
     }
@@ -80,11 +80,11 @@ RedisConnectionPool::~RedisConnectionPool(void)
 bool RedisConnectionPool::open(const HostAddress& addr, int capacity)
 {
     close();
-    Logger::log(Logger::Message, "Create connection pool (%s:%d)...",
+    LOG(Logger::Message, "Create connection pool (%s:%d)...",
                 addr.ip(), addr.port());
 
     if (capacity <= 0) {
-        Logger::log(Logger::Error, "Create failed: capacity parameter error");
+        LOG(Logger::Error, "Create failed: capacity parameter error");
         return false;
     }
 
@@ -101,7 +101,7 @@ bool RedisConnectionPool::open(const HostAddress& addr, int capacity)
             m_pool.push_back(sock);
         }
     }
-    Logger::log(Logger::Message, "Creating successful. nums: %d", m_pool.size());
+    LOG(Logger::Message, "Creating successful. nums: %d", m_pool.size());
     return true;
 }
 
@@ -258,16 +258,16 @@ void RedisServant::onReconnect(socket_t, short, void* arg)
 
     RedisServant::Option opt = servant->option();
     if (servant->m_reconnCount >= opt.maxReconnCount) {
-        Logger::log(Logger::Message, "Stop the reconnection");
+        LOG(Logger::Message, "Stop the reconnection");
         return;
     }
 
     ++servant->m_reconnCount;
-    Logger::log(Logger::Message, "(%d) Reconnect to redis...", servant->m_reconnCount);
+    LOG(Logger::Message, "(%d) Reconnect to redis...", servant->m_reconnCount);
     if (!servant->start()) {
         servant->m_connEvent.setTimer(servant->m_loop, onReconnect, servant);
         servant->m_connEvent.active(opt.reconnInterval * 1000);
-        Logger::log(Logger::Message, "After %d second(s) reconnection...", opt.reconnInterval);
+        LOG(Logger::Message, "After %d second(s) reconnection...", opt.reconnInterval);
     } else {
         servant->m_reconnCount = 0;
     }
@@ -281,7 +281,7 @@ void RedisServant::onDisconnected(socket_t sock, short, void *arg)
         RedisServant* servant = (RedisServant*)arg;
         servant->stop();
 
-        Logger::log(Logger::Warning, "Redis (%s:%d) disconnected",
+        LOG(Logger::Warning, "Redis (%s:%d) disconnected",
                     servant->redisAddress().ip(),
                     servant->redisAddress().port());
 
@@ -301,6 +301,7 @@ void RedisServant::onSendRequest(socket_t sock, short, void *arg)
 
     TcpSocket socket(sock);
     int ret = socket.nonblocking_send(sendBuff, sendSize);
+    LOG(Logger::VVERBOSE, "send %d bytes to s %d", ret, sock);
     switch (ret) {
     default:
         packet->sendToRedisBytes += ret;

@@ -20,6 +20,8 @@
 #ifndef REDISSERVANTGROUP_H
 #define REDISSERVANTGROUP_H
 
+#include "redisproxy.h"
+
 class ClientPacket;
 class RedisServant;
 class RedisServantGroup;
@@ -30,7 +32,7 @@ public:
     RedisServantGroupPolicy(void);
     virtual ~RedisServantGroupPolicy(void);
 
-    virtual RedisServant* selectServant(RedisServantGroup* group, ClientPacket* packet);
+    virtual RedisServant* selectServant(RedisServantGroup* group, ClientPacketPtr);
 
     static RedisServantGroupPolicy* createPolicy(const char* name);
 };
@@ -67,7 +69,7 @@ public:
     void setEnabled(bool b);
     bool isEnabled(void) const;
 
-    RedisServant* findUsableServant(ClientPacket* packet)
+    RedisServant* findUsableServant(ClientPacketPtr packet)
     { return m_policy->selectServant(this, packet); }
 
 private:

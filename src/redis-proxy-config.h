@@ -190,8 +190,9 @@ public:
     int keyMapCnt(){ return m_keyMappingList->size();}
     const CHashMapping* hashMapping(int index)const {return &(*m_hashMappingList)[index];}
     const CKeyMapping* keyMapping(int index)const {return &(*m_keyMappingList)[index];}
-private:
+
     COperateXml*     m_operateXmlPointer;
+private:
     GroupInfoList*   m_groupInfo;
     HashMappingList* m_hashMappingList;
     KeyMappingList*  m_keyMappingList;

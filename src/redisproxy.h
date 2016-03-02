@@ -32,10 +32,12 @@
 #include "redisproto.h"
 #include "redisservantgroup.h"
 #include "proxymanager.h"
+#include "redisservant.h"
 
 class RedisConnection;
 class RedisServant;
 class RedisProxy;
+//typedef std::shared_ptr<ClientPacket> ClientPacketPtr;
 class ClientPacket : public Context
 {
 public:
@@ -71,6 +73,10 @@ public:
     int sendToRedisBytes;                           //Send to redis bytes
     RedisServant* requestServant;                   //Object of request
     RedisConnection* redisSocket;                   //Redis socket
+
+    // Create a new ClientPacket using contexts of a reference packet
+    static ClientPacketPtr MakeAPacket(int commandType, ClientPacketPtr refPacket, char *command);
+    static ClientPacketPtr Construct() { return new ClientPacket; }
 };
 
 class Monitor
@@ -135,7 +141,8 @@ public:
     RedisServantGroup* group(int index) const { return m_groups.at(index); }
     RedisServantGroup* group(const char* name) const;
     RedisServantGroup* mapToGroup(const char* key, int len);
-    void handleClientPacket(const char* key, int len, ClientPacket* packet);
+    unsigned int KeyToIndex(const char* key, int len);
+    void handleClientPacket(const char *key, int len, ClientPacketPtr packet);
 
     bool addGroupKeyMapping(const char* key, int len, RedisServantGroup* group);
     void removeGroupKeyMapping(const char* key, int len);
@@ -151,6 +158,11 @@ public:
     virtual void writeReply(Context* c);
     virtual void writeReplyFinished(Context* c);
 
+    void SetSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot%MaxHashValue] = sg; }
+    RedisServantGroup * GetSlotMigration(int slot) { return m_hashSlotMigrating[slot%MaxHashValue]; }
+    ClientPacketPtr MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
+                                                    RedisServantGroup *origGroup,
+                                                    RedisServantGroup *migrationTargetServantGroup);
 private:
     static void vipHandler(socket_t, short, void*);
 
@@ -159,6 +171,7 @@ private:
     HashFunc m_hashFunc;
     int m_maxHashValue;
     RedisServantGroup* m_hashMapping[MaxHashValue];
+    RedisServantGroup *m_hashSlotMigrating[MaxHashValue];
     Vector<RedisServantGroup*> m_groups;
     TcpSocket m_vipSocket;
     char m_vipName[256];
