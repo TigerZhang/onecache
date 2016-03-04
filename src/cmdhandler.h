@@ -49,4 +49,7 @@ void onShutDown(ClientPacket* packet, void*);
 
 void MigrateServer(ClientPacket *packet, void *);
 
+void ShowMigrateStatus(ClientPacket *packet, void *);
+
+void SetLogLevel(ClientPacket *packet, void *);
 #endif

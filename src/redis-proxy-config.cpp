@@ -392,6 +392,34 @@ void CRedisProxyCfg::setKeyMappingNode(TiXmlElement* pNode) {
     }
 }
 
+void CRedisProxyCfg::LoadMigrationSlots(TiXmlElement *pNode) {
+    TiXmlElement *pNext = pNode->FirstChildElement();
+    for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
+        if (strcasecmp(pNext->Value(), "migrate") == 0) {
+            LOG(Logger::INFO, "migrate");
+            TiXmlAttribute *attr = pNext->FirstAttribute();
+
+            MigrationOption migration;
+            for (; attr != NULL; attr = attr->Next()) {
+                const char *name = attr->Name();
+                const char *value = attr->Value();
+
+                LOG(Logger::INFO, "%s: %s", name, value);
+
+                if (strcasecmp(name, "slot") == 0) {
+                    migration.slotNum = atoi(value);
+                } else if (strcasecmp(name, "server_address") == 0) {
+                    migration.addr = std::string(value);
+                } else if (strcasecmp(name, "port") == 0) {
+                    migration.port = atoi(value);
+                }
+            }
+
+            migrationOptions.push_back(migration);
+        }
+    }
+}
+
 void CRedisProxyCfg::getGroupNode(TiXmlElement* pNode) {
     CGroupInfo groupTmp;
     set_groupAttribute(pNode->FirstAttribute(), groupTmp);
@@ -459,7 +487,7 @@ bool CRedisProxyCfg::saveProxyLastState(RedisProxy* proxy) {
     for (int i = 0; i < proxy->maxHashValue(); ++i) {
         TiXmlElement hashNode("hash");
         hashNode.SetAttribute("value", i);
-        hashNode.SetAttribute("group_name", proxy->hashForGroup(i)->groupName());
+        hashNode.SetAttribute("group_name", proxy->SlotNumToRedisServerGroup(i)->groupName());
         hashMappingNode.InsertEndChild(hashNode);
     }
     pRootNode->InsertEndChild(hashMappingNode);
@@ -486,6 +514,31 @@ bool CRedisProxyCfg::saveProxyLastState(RedisProxy* proxy) {
     }
     pRootNode->InsertEndChild(keyMappingNode);
 
+    // migration slots
+    string migrations = "migration_slots";
+    TiXmlElement* p;
+    if (GetNodePointerByName(pRootNode, migrations, p)) {
+        pRootNode->RemoveChild(p);
+    }
+    TiXmlElement migrationSlots(migrations.c_str());
+    for (int i = 0; i < proxy->maxHashValue(); i++) {
+        RedisServantGroup *sg = proxy->GetSlotMigration(i);
+        if (sg) {
+            RedisServant *rs = sg->master(0);
+            HostAddress addr("0.0.0.0", 0);
+            if (rs) {
+                addr = rs->redisAddress();
+            }
+
+            TiXmlElement migrateNode("migrate");
+            migrateNode.SetAttribute("slot", i);
+            migrateNode.SetAttribute("server_address", addr.ip());
+            migrateNode.SetAttribute("port", addr.port());
+            migrationSlots.InsertEndChild(migrateNode);
+        }
+    }
+    pRootNode->InsertEndChild(migrationSlots);
+
     // add time
     time_t now = time(NULL);
     char fileName[512];
@@ -496,12 +549,18 @@ bool CRedisProxyCfg::saveProxyLastState(RedisProxy* proxy) {
         current_time->tm_mday,
         current_time->tm_hour);
 
-    bool ok = m_operateXmlPointer->m_docPointer->SaveFile(fileName);
+    int rc = std::rename(configFile, fileName);
+    if (rc) {
+        LOG(Logger::Error, "rename config file failed %d", rc);
+    }
+    bool ok = m_operateXmlPointer->m_docPointer->SaveFile(configFile);
     return ok;
 }
 
 
 bool CRedisProxyCfg::loadCfg(const char* file) {
+    configFile = file;
+
     if (!m_operateXmlPointer->xml_open(file)) return false;
 
     const TiXmlElement* pRootNode = m_operateXmlPointer->get_rootElement();
@@ -563,6 +622,10 @@ bool CRedisProxyCfg::loadCfg(const char* file) {
         }
         if (0 == strcasecmp(pNode->Value(), "key_mapping")) {
             setKeyMappingNode(pNode);
+            continue;
+        }
+        if (0 == strcasecmp(pNode->Value(), "migration_slots")) {
+            LoadMigrationSlots(pNode);
             continue;
         }
     }

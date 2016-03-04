@@ -18,6 +18,7 @@
 */
 
 #include "tcpsocket.h"
+#include "logger.h"
 
 #ifdef WIN32
 #pragma comment(lib, "ws2_32.lib")
@@ -247,6 +248,7 @@ int TcpSocket::recvBufferSize(void)
 
 bool TcpSocket::connect(const HostAddress &addr)
 {
+    LOG(Logger::INFO, "::connect %s:%d", addr.ip(), addr.port());
     if (::connect(m_socket, (sockaddr*)addr._sockaddr(), sizeof(sockaddr_in)) != 0) {
         return false;
     }

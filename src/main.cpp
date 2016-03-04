@@ -129,6 +129,17 @@ void startOneCache(void)
             }
         }
     }
+extern RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port);
+    std::for_each(cfg->migrationOptions.begin(), cfg->migrationOptions.end(),
+                  [](MigrationOption &option) {
+                      std::cout << "Start: migration option s " << option.slotNum
+                              << " a " << option.addr << " p " << option.port
+                              << std::endl;
+                      RedisServantGroup *group =
+                              RedisProxy::CreateMigrationTarget(currentProxy, option.slotNum, option.addr, option.port);
+                      currentProxy->SetSlotMigrating(option.slotNum, group);
+                  }
+    );
 
     CProxyMonitor monitor;
     proxy.setMonitor(&monitor);

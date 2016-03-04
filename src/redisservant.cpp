@@ -48,6 +48,8 @@ bool RedisConnection::connect(const HostAddress& addr)
         LOG(Logger::Error, "RedisConnection::connect: %s", strerror(errno));
         sock.close();
         return false;
+    } else {
+        LOG(Logger::INFO, "Connected %s:%d", addr.ip(), addr.port());
     }
 
     sock.setOption(SOL_SOCKET, SO_SNDTIMEO, (char*)&defaultVal, sizeof(timeval));
@@ -192,6 +194,7 @@ bool RedisServant::start(void)
         return false;
     }
 
+    LOG(Logger::INFO, "Connect to %s:%d", m_redisAddress.ip(), m_redisAddress.port());
     if (m_connListener.connect(m_redisAddress)) {
         m_connEvent.set(m_loop, m_connListener.m_socket.socket(), EV_READ, onDisconnected, this);
         m_connEvent.active();

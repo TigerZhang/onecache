@@ -41,6 +41,8 @@ static const char* msg_type_text[] =
     "VVVERBOSE",
 };
 
+int Logger::logLevel = Logger::INFO;
+
 Logger::Logger(void)
 {
 }

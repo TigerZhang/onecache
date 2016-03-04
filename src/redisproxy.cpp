@@ -27,6 +27,8 @@
 
 #include <resp/all.hpp>
 
+std::map<std::string, RedisServantGroup *> RedisProxy::migrationTargets;
+
 ClientPacket::ClientPacket(void)
 {
     commandType = -1;
@@ -211,7 +213,9 @@ bool RedisProxy::run(const HostAddress& addr)
 
         // YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
         {"YMIGRATE", 8, -1, MigrateServer, this},
-        {"SHUTDOWN", 8, -1, onShutDown, this}
+        {"MIGSTAT", 7, -1, ShowMigrateStatus, this},
+        {"SHUTDOWN", 8, -1, onShutDown, this},
+        {"LOG", 3, -1, SetLogLevel, this},
     };
     RedisCommandTable::instance()->registerCommand(cmds, sizeof(cmds)/sizeof(RedisCommand));
 
@@ -252,10 +256,10 @@ bool RedisProxy::setGroupMappingValue(int hashValue, RedisServantGroup *group)
     return false;
 }
 
-RedisServantGroup *RedisProxy::hashForGroup(int hashValue) const
+RedisServantGroup *RedisProxy::SlotNumToRedisServerGroup(int slotNum) const
 {
-    if (hashValue >= 0 && hashValue < m_maxHashValue) {
-        return m_hashMapping[hashValue];
+    if (slotNum >= 0 && slotNum < m_maxHashValue) {
+        return m_hashMapping[slotNum];
     }
     return NULL;
 }
@@ -489,4 +493,61 @@ void RedisProxy::vipHandler(socket_t sock, short, void* arg)
         LOG(Logger::Message, "set_vip_address return %d", ret);
         proxy->m_vipSocket.close();
     }
+}
+
+static RedisServant *CreateRedisServant(EventLoop *ev_loop, string hostname, int port)
+{
+    LOG(Logger::VVVERBOSE, "create redis connection %s:%d", hostname.c_str(), port);
+
+    RedisServant* servant = new RedisServant;
+    RedisServant::Option opt;
+    strcpy(opt.name, hostname.c_str());
+    opt.poolSize = 50;
+    opt.reconnInterval = 1;
+    opt.maxReconnCount = 100;
+    servant->setOption(opt);
+    servant->setRedisAddress(HostAddress(hostname.c_str(), port));
+    servant->setEventLoop(ev_loop);
+
+    return servant;
+}
+
+static RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port)
+{
+    RedisServantGroup* group = new RedisServantGroup;
+    RedisServantGroupPolicy* policy = RedisServantGroupPolicy::createPolicy("master_only");
+    group->setGroupName(groupName.c_str());
+    group->setPolicy(policy);
+
+    RedisServant *servant = CreateRedisServant(context->eventLoop(), hostname, port);
+    group->addMasterRedisServant(servant);
+
+    group->setEnabled(true);
+
+    return group;
+}
+
+RedisServantGroup *RedisProxy::CreateMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port) {
+    char addr[256];
+    // check if connection existed by address
+    snprintf(addr, 256, "%s:%d", hostname.c_str(), port);
+    auto it = RedisProxy::migrationTargets.find(addr);
+    if (it != RedisProxy::migrationTargets.end()) {
+        LOG(Logger::DEBUG, "Found saved target %s", addr);
+        return RedisProxy::migrationTargets[addr];
+    }
+
+    char name[256];
+    // create connection
+    snprintf(name, 256, "group-mig-%d", slotNum);
+    LOG(Logger::DEBUG, "Create new target n %s s %d", addr, slotNum);
+    RedisServantGroup *group = CreateGroup(context, name, hostname, port);
+    if (group == NULL) {
+        return NULL;
+    }
+
+    // save the connection
+    RedisProxy::migrationTargets[addr] = group;
+
+    return group;
 }

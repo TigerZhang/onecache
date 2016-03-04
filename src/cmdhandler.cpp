@@ -17,6 +17,8 @@
 * under the License.
 */
 
+#include <resp/all.hpp>
+
 #include "cmdhandler.h"
 #include "redisproxy.h"
 #include "redisservant.h"
@@ -344,7 +346,7 @@ void onShowMapping(ClientPacket* packet, void*)
     packet->sendBuff.appendFormatString("%-15s %-15s\n", "HASH_VALUE", "GROUP_NAME");
     for (int i = 0; i < proxy->maxHashValue(); ++i) {
         packet->sendBuff.appendFormatString("%-15d %-15s\n",
-                                            i, proxy->hashForGroup(i)->groupName());
+                                            i, proxy->SlotNumToRedisServerGroup(i)->groupName());
     }
     packet->sendBuff.append("\n");
     packet->sendBuff.append("[KEY MAPPING]\n");
@@ -422,40 +424,23 @@ void onShutDown(ClientPacket* packet, void*)
     }
 }
 
-RedisServant *CreateRedisServant(EventLoop *ev_loop, string hostname, int port)
+void SetLogLevel(ClientPacket *p, void*)
 {
-    RedisServant* servant = new RedisServant;
-    RedisServant::Option opt;
-    strcpy(opt.name, hostname.c_str());
-    opt.poolSize = 50;
-    opt.reconnInterval = 3 * 1000;
-    opt.maxReconnCount = 100;
-    servant->setOption(opt);
-    servant->setRedisAddress(HostAddress(hostname.c_str(), port));
-    servant->setEventLoop(ev_loop);
+    RedisProtoParseResult &req = p->recvParseResult;
 
-    return servant;
-}
-
-RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port)
-{
-    RedisServantGroup* group = new RedisServantGroup;
-    RedisServantGroupPolicy* policy = RedisServantGroupPolicy::createPolicy("master_only");
-    group->setGroupName(groupName.c_str());
-    group->setPolicy(policy);
-
-    RedisServant *servant = CreateRedisServant(context->eventLoop(), hostname, port);
-    group->addMasterRedisServant(servant);
-
-    group->setEnabled(true);
-
-    return group;
+    if (req.tokenCount == 1) {
+        p->sendBuff.appendFormatString("+%d\r\n", Logger::logLevel);
+    }
+    if (req.tokenCount == 2) {
+        p->sendBuff.append("+OK\r\n");
+    }
+    p->setFinishedState(ClientPacket::RequestFinished);
 }
 
 // YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
 void MigrateServer(ClientPacket *packet, void *data)
 {
-    RedisProxy *contex = (RedisProxy *)data;
+    RedisProxy *context = (RedisProxy *)data;
 
     RedisProtoParseResult&req = packet->recvParseResult;
     if (req.tokenCount != 4) {
@@ -467,9 +452,52 @@ void MigrateServer(ClientPacket *packet, void *data)
     int slotNum = std::stoi(string(req.tokens[1].s, req.tokens[1].len));
     string hostname(req.tokens[2].s, req.tokens[2].len);
     string port(req.tokens[3].s, req.tokens[3].len);
-    RedisServantGroup *group = CreateGroup(contex, "group-mig", hostname, std::stoi(port));
-    contex->SetSlotMigrating(slotNum, group);
 
-    packet->sendBuff.append("+OK\r\n");
+    RedisServantGroup *group = RedisProxy::CreateMigrationTarget(context, slotNum, hostname, std::stoi(port));
+    context->SetSlotMigrating(slotNum, group);
+
+    if (CRedisProxyCfg::instance()->saveProxyLastState(context)) {
+        packet->sendBuff.append("+OK\r\n");
+        packet->setFinishedState(ClientPacket::RequestFinished);
+    } else {
+        packet->sendBuff.append("-Save config file failed\r\n");
+        packet->setFinishedState(ClientPacket::RequestError);
+    }
+
+}
+
+void ShowMigrateStatus(ClientPacketPtr packet, void *data)
+{
+    RedisProxy *context = (RedisProxy *)data;
+
+    std::vector<string> migrationInfos;
+
+//    packet->sendBuff.append("+Index\tGroup Name\r\n");
+    int maxSlots = context->maxHashValue();
+//    LOG(Logger::VVVERBOSE, "Max slot number %d", maxSlots);
+
+    for (int i = 0; i < maxSlots; i++) {
+        RedisServantGroup *sg = context->GetSlotMigration(i);
+//        LOG(Logger::VVVERBOSE, "mig[%d] %d", i, sg);
+        if (sg) {
+            char buf[512];
+            snprintf(buf, 512, "%d->%s; ", i, sg->groupName());
+            migrationInfos.push_back(std::string(buf));
+            LOG(Logger::INFO, "Migrating slot %d from %s to %s",
+                i, context->SlotNumToRedisServerGroup(i)->groupName(), sg->groupName());
+//            packet->sendBuff.appendFormatString("+%d\t%s\r\n", i, sg->groupName());
+        }
+    }
+
+    std::string result;
+    for (auto const& s : migrationInfos) { result += s; }
+
+    LOG(Logger::VVVERBOSE, "Migration info %s", result.c_str());
+
+    resp::encoder<resp::buffer> enc;
+    std::vector<resp::buffer> buffers = enc.encode(result.c_str());
+    std::string command = std::string(buffers.front().data(), buffers.front().size());
+
+    packet->sendBuff.appendFormatString(command.c_str());
     packet->setFinishedState(ClientPacket::RequestFinished);
 }

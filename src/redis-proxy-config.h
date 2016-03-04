@@ -118,6 +118,31 @@ public:
 };
 typedef std::vector<CKeyMapping> KeyMappingList;
 
+class MigrationOption {
+public:
+    MigrationOption() :
+            slotNum(-1), addr(""), port(-1)
+    {
+    }
+
+    int slotNum;
+    string addr;
+    int port;
+
+    bool Valid() {
+        if (slotNum == -1) {
+            return false;
+        }
+        if (addr == "") {
+            return false;
+        }
+        if (port == -1) {
+            return false;
+        }
+
+        return true;
+    }
+};
 
 class CGroupInfo
 {
@@ -191,6 +216,7 @@ public:
     const CHashMapping* hashMapping(int index)const {return &(*m_hashMappingList)[index];}
     const CKeyMapping* keyMapping(int index)const {return &(*m_keyMappingList)[index];}
 
+    std::vector<MigrationOption>    migrationOptions;
     COperateXml*     m_operateXmlPointer;
 private:
     GroupInfoList*   m_groupInfo;
@@ -205,6 +231,7 @@ private:
     bool             m_guard;
     bool             m_topKeyEnable;
     GroupOption      m_groupOption;
+    const char       *configFile;
 private:
     void set_groupName(CGroupInfo& group, const char* name);
     void set_hashMin(CGroupInfo& group, int num);
@@ -220,6 +247,7 @@ private:
     void setHashMappingNode(TiXmlElement* pNode);
     void setKeyMappingNode(TiXmlElement* pNode);
     void setGroupOption(const TiXmlElement* pNode);
+    void LoadMigrationSlots(TiXmlElement *pNode);
 private:
     CRedisProxyCfg(const CRedisProxyCfg&);
     CRedisProxyCfg& operator =(const CRedisProxyCfg&);

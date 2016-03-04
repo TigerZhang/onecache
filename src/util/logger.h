@@ -40,11 +40,6 @@
 #include <string.h>
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
-static int log_loggable(int)
-{
-    return 1;
-}
-
 #define log_vvv(...) do {                                                  \
     if (log_loggable(Logger::VVVERBOSE) != 0) {                                      \
         Logger::log2(__FILE__, __LINE__, __VA_ARGS__);                           \
@@ -75,16 +70,25 @@ public:
 
     //Output function
     static void log(MsgType type, const char *file, int line, const char* format, ...);
-#define LOG(type, ...) do { Logger::log(type, __FILENAME__, __LINE__, __VA_ARGS__); } while(0);
+#define LOG(type, ...) \
+    do { \
+        if (log_loggable(type)) { Logger::log(type, __FILENAME__, __LINE__, __VA_ARGS__); } \
+    } while(0);
 
     //Default logger
     static Logger* defaultLogger(void);
 
     //Set Default logger
     static void setDefaultLogger(Logger* logger);
+
+    static int logLevel;
 };
 
-
+static int log_loggable(int l)
+{
+    if (l <= Logger::logLevel) return 1;
+    return 0;
+}
 
 class FileLogger : public Logger
 {

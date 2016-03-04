@@ -135,7 +135,7 @@ public:
 
     HashFunc hashFunction(void) const { return m_hashFunc; }
     int maxHashValue(void) const { return m_maxHashValue; }
-    RedisServantGroup* hashForGroup(int hashValue) const;
+    RedisServantGroup* SlotNumToRedisServerGroup(int slotNum) const;
 
     int groupCount(void) const { return m_groups.size(); }
     RedisServantGroup* group(int index) const { return m_groups.at(index); }
@@ -158,13 +158,34 @@ public:
     virtual void writeReply(Context* c);
     virtual void writeReplyFinished(Context* c);
 
+    //
+    // redis MIGRATE command will create a temporary connection to the target redis server, then close the connection
+    // after migration done. The target redis server will have a lot of connections in TIME_WAIT state.
+    // The target redis server will deny new connection when there too many connections hung in TIME_WAIT state,
+    // migration will fail in this case. So the following system options may be needed.
+    // net.ipv4.tcp_fin_timeout = 5
+    // net.ipv4.tcp_tw_reuse = 1
+    //
+    // TODO:
+    //
+    // implement StartSlotMigration method
+    // - set slot in migrating status. i.e., create a migration target and update the slot migration map.
+    // - start a timer to check if migration is done by checking if source server is empty.
+    // implement SlotMigrationDone callback
+    // - update slot mapping. i.e., set slot -> target server.
+    // - remove slot from migration map.
+    // - update configration file.
     void SetSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot%MaxHashValue] = sg; }
     RedisServantGroup * GetSlotMigration(int slot) { return m_hashSlotMigrating[slot%MaxHashValue]; }
     ClientPacketPtr MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
                                                     RedisServantGroup *origGroup,
                                                     RedisServantGroup *migrationTargetServantGroup);
+
+    static RedisServantGroup *CreateMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port);
+
 private:
     static void vipHandler(socket_t, short, void*);
+    static std::map<std::string, RedisServantGroup *> migrationTargets; //<hostname:port, *>
 
 private:
     Monitor* m_monitor;
