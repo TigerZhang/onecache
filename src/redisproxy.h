@@ -33,6 +33,7 @@
 #include "redisservantgroup.h"
 #include "proxymanager.h"
 #include "redisservant.h"
+#include "redis-proxy-config.h"
 
 class RedisConnection;
 class RedisServant;
@@ -104,6 +105,8 @@ public:
     RedisProxy(void);
     ~RedisProxy(void);
 
+    RedisServantGroup * findNextMigration(int *pInt);
+
 public:
     void setEventLoopThreadPool(EventLoopThreadPool* pool)
     { m_eventLoopThreadPool = pool; }
@@ -166,7 +169,7 @@ public:
     // net.ipv4.tcp_fin_timeout = 5
     // net.ipv4.tcp_tw_reuse = 1
     //
-    // TODO:
+    // TODO: implement StartSlotMigration/SlotMigrationDone
     //
     // implement StartSlotMigration method
     // - set slot in migrating status. i.e., create a migration target and update the slot migration map.
@@ -175,13 +178,16 @@ public:
     // - update slot mapping. i.e., set slot -> target server.
     // - remove slot from migration map.
     // - update configration file.
-    void SetSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot%MaxHashValue] = sg; }
+    void StartSlotMigration(int slot, RedisServantGroup *sg);
     RedisServantGroup * GetSlotMigration(int slot) { return m_hashSlotMigrating[slot%MaxHashValue]; }
     ClientPacketPtr MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
                                                     RedisServantGroup *origGroup,
                                                     RedisServantGroup *migrationTargetServantGroup);
 
     static RedisServantGroup *CreateMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port);
+
+    // exposed for unit test ONLY
+    void SetSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot%MaxHashValue] = sg; }
 
 private:
     static void vipHandler(socket_t, short, void*);
@@ -208,9 +214,23 @@ private:
     Mutex m_groupMutex;
     ProxyManager m_proxyManager;
 
+    Event e;
+    static int migrationPos;
+
 private:
     RedisProxy(const RedisProxy&);
     RedisProxy& operator =(const RedisProxy&);
+
+    static void checkMigrationStat(int, short, void *arg);
 };
+
+class MigrationPair
+{
+public:
+    RedisServantGroup *source;
+    RedisServantGroup *target;
+};
+
+typedef MigrationPair* MigrationPairPtr;
 
 #endif

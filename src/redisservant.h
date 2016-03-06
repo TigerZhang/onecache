@@ -114,6 +114,9 @@ public:
 
     void handle(ClientPacket* packet);
 
+    Event *ev() { return &m_connEvent; }
+    EventLoop *evloop() { return m_loop; }
+
 private:
     void onRedisSocketUseCompleted(RedisConnection* sock);
     static void onDisconnected(socket_t sock, short, void* arg);

@@ -60,6 +60,7 @@ public:
         VERBOSE = 6,
         VVERBOSE = 7,
         VVVERBOSE = 8,
+        MAXLEVEL = 9
     };
 
     Logger(void);
@@ -81,7 +82,19 @@ public:
     //Set Default logger
     static void setDefaultLogger(Logger* logger);
 
+    static int getLogLevel() {
+        return logLevel;
+    }
+
+    static void setLogLevel(int logLevel) {
+        Logger::logLevel = logLevel % Logger::MAXLEVEL;
+    }
+
     static int logLevel;
+
+    static const char * Level();
+
+    static const char *msg_type_text[];
 };
 
 static int log_loggable(int l)

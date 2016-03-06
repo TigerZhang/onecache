@@ -137,7 +137,7 @@ extern RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, st
                               << std::endl;
                       RedisServantGroup *group =
                               RedisProxy::CreateMigrationTarget(currentProxy, option.slotNum, option.addr, option.port);
-                      currentProxy->SetSlotMigrating(option.slotNum, group);
+                      currentProxy->StartSlotMigration(option.slotNum, group);
                   }
     );
 

@@ -154,6 +154,9 @@ ClientPacket::MakeAPacket(int commandType, ClientPacketPtr refPacket, char *comm
 }
 
 static Monitor dummy;
+
+int RedisProxy::migrationPos = 0;
+
 RedisProxy::RedisProxy(void)
 {
     m_monitor = &dummy;
@@ -180,8 +183,23 @@ RedisProxy::~RedisProxy(void)
     }
 }
 
+void checkMigrationState(evutil_socket_t, short, void *arg) {
+    RedisProxy *p = (RedisProxy *)arg;
+
+    int index;
+    RedisServantGroup *sg = p->findNextMigration(&index);
+    if (sg) {
+        LOG(Logger::INFO, "migrating n %s s %d", sg->groupName(), index);
+    }
+
+//    LOG(Logger::INFO, "timer checkMigrationState");
+}
+
 bool RedisProxy::run(const HostAddress& addr)
 {
+    e.setTimerPersist(eventLoop(), checkMigrationState, this);
+    e.active(100);
+
     if (isRunning()) {
         return false;
     }
@@ -231,6 +249,7 @@ void RedisProxy::stop(void)
             int ret = NonPortable::setVipAddress(m_vipName, m_vipAddress, 1);
             LOG(Logger::Message, "delete vip return %d", ret);
 
+            e.remove();
             m_vipEvent.remove();
             m_vipSocket.close();
         }
@@ -495,6 +514,40 @@ void RedisProxy::vipHandler(socket_t sock, short, void* arg)
     }
 }
 
+void
+RedisProxy::checkMigrationStat(int, short, void *arg)
+{
+    MigrationPairPtr mpp = (MigrationPairPtr)arg;
+    LOG(Logger::INFO, "checkMigrationStat");
+    // TODO: implement checkMigrationStat
+    // if migration done (keyspace of source server is empty
+    //   1. update the configuration file
+    //     - update slot -> server
+    //     - delete migration config
+    delete mpp;
+
+    // if migration is still ongoing
+    //   1. restart the timer and check the status later
+}
+
+void
+RedisProxy::StartSlotMigration(int slot, RedisServantGroup *sg) {
+    SetSlotMigrating(slot, sg);
+
+    // Start a timer for this slot, checking migration state
+    RedisServantGroup *origSg = SlotNumToRedisServerGroup(slot);
+    RedisServant *serv = origSg->master(0);
+
+//    MigrationPairPtr mpp = new MigrationPair;
+//    mpp->source = origSg;
+//    mpp->target = sg;
+
+//    Event migrationCheckEvent;
+//    migrationCheckEvent.setTimer(eventLoop(), checkMigrationStat, mpp);
+//    int ret = migrationCheckEvent.active(500);
+//    LOG(Logger::INFO, "StartSlotMigration start timer %d", ret);
+}
+
 static RedisServant *CreateRedisServant(EventLoop *ev_loop, string hostname, int port)
 {
     LOG(Logger::VVVERBOSE, "create redis connection %s:%d", hostname.c_str(), port);
@@ -550,4 +603,24 @@ RedisServantGroup *RedisProxy::CreateMigrationTarget(RedisProxy *context, int sl
     RedisProxy::migrationTargets[addr] = group;
 
     return group;
+}
+
+RedisServantGroup *
+RedisProxy::findNextMigration(int *pInt) {
+    RedisServantGroup *ret = NULL;
+
+    while (migrationPos < MaxHashValue) {
+        if (m_hashSlotMigrating[migrationPos%MaxHashValue]) {
+            *pInt = migrationPos;
+            ret = m_hashSlotMigrating[migrationPos%MaxHashValue];
+
+            // enumerate the next element next time
+            migrationPos++;
+            break;
+        }
+        migrationPos++;
+    }
+
+    migrationPos = migrationPos % MaxHashValue;
+    return ret;
 }

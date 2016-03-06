@@ -28,7 +28,7 @@
 static Logger _stdoutput;
 Logger* _defaultLogger = &_stdoutput;
 
-static const char* msg_type_text[] =
+const char* Logger::msg_type_text[] =
 {
     "CRITAL",
     "FATA",
@@ -41,7 +41,7 @@ static const char* msg_type_text[] =
     "VVVERBOSE",
 };
 
-int Logger::logLevel = Logger::INFO;
+int Logger::logLevel = Logger::DEBUG;
 
 Logger::Logger(void)
 {
@@ -143,4 +143,8 @@ void FileLogger::output(Logger::MsgType type, const char *msg)
             lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
             lt->tm_hour, lt->tm_min, lt->tm_sec, msg_type_text[type], msg);
     fflush(m_fp);
+}
+
+const char * Logger::Level() {
+    return msg_type_text[logLevel];
 }

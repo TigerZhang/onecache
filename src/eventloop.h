@@ -40,8 +40,10 @@ public:
     //Set timeout event
     void setTimer(EventLoop* loop, event_callback_fn fn, void* arg);
 
+    void setTimerPersist(EventLoop *loop, event_callback_fn fn, void *arg);
+
     //Active
-    void active(int timeout_msec = -1);
+    int active(int timeout_msec = -1);
 
     //Remove event from event loop
     void remove(void);

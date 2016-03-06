@@ -429,10 +429,11 @@ void SetLogLevel(ClientPacket *p, void*)
     RedisProtoParseResult &req = p->recvParseResult;
 
     if (req.tokenCount == 1) {
-        p->sendBuff.appendFormatString("+%d\r\n", Logger::logLevel);
+        p->sendBuff.appendFormatString("+%s\r\n", Logger::Level());
     }
     if (req.tokenCount == 2) {
-        p->sendBuff.append("+OK\r\n");
+        Logger::setLogLevel(std::stoi(string(req.tokens[1].s, req.tokens[1].len)));
+        p->sendBuff.appendFormatString("+%d\r\n", Logger::logLevel);
     }
     p->setFinishedState(ClientPacket::RequestFinished);
 }
@@ -454,7 +455,7 @@ void MigrateServer(ClientPacket *packet, void *data)
     string port(req.tokens[3].s, req.tokens[3].len);
 
     RedisServantGroup *group = RedisProxy::CreateMigrationTarget(context, slotNum, hostname, std::stoi(port));
-    context->SetSlotMigrating(slotNum, group);
+    context->StartSlotMigration(slotNum, group);
 
     if (CRedisProxyCfg::instance()->saveProxyLastState(context)) {
         packet->sendBuff.append("+OK\r\n");

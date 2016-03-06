@@ -38,15 +38,20 @@ void Event::setTimer(EventLoop *loop, event_callback_fn fn, void *arg)
     evtimer_assign(&m_event, loop->m_event_loop, fn, arg);
 }
 
-void Event::active(int timeout)
+void Event::setTimerPersist(EventLoop *loop, event_callback_fn fn, void *arg)
+{
+    event_assign(&m_event, loop->m_event_loop, -1, EV_PERSIST, fn, arg);
+}
+
+int Event::active(int timeout)
 {
     if (timeout != -1) {
         timeval val;
         val.tv_sec = (timeout / 1000);
         val.tv_usec = (timeout - val.tv_sec * 1000) * 1000;
-        event_add(&m_event, &val);
+        return event_add(&m_event, &val);
     } else {
-        event_add(&m_event, NULL);
+        return event_add(&m_event, NULL);
     }
 }
 

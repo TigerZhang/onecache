@@ -67,7 +67,58 @@ add_subdirectory(${EXT_PROJECTS_DIR}/gtest)
 enable_testing()
 set(PROJECT_TEST_NAME ${PROJECT_NAME_STR}_test)
 include_directories(${GTEST_INCLUDE_DIRS})
-file(GLOB TEST_SRC_FILES ${PROJECT_SOURCE_DIR}/test/*.cpp)
+file(GLOB TEST_SRC_FILES ${PROJECT_SOURCE_DIR}/test/*.cpp
+        src/tinyxml/tinystr.cpp
+        src/tinyxml/tinystr.h
+        src/tinyxml/tinyxml.cpp
+        src/tinyxml/tinyxml.h
+        src/tinyxml/tinyxmlerror.cpp
+        src/tinyxml/tinyxmlparser.cpp
+        src/util/hash.cpp
+        src/util/hash.h
+        src/util/iobuffer.cpp
+        src/util/iobuffer.h
+        src/util/locker.cpp
+        src/util/locker.h
+        src/util/logger.cpp
+        src/util/logger.h
+        src/util/objectpool.h
+        src/util/queue.h
+        src/util/string.h
+        src/util/tcpserver.cpp
+        src/util/tcpserver.h
+        src/util/tcpsocket.cpp
+        src/util/tcpsocket.h
+        src/util/thread.cpp
+        src/util/thread.h
+        src/util/vector.h
+        src/cmdhandler.cpp
+        src/cmdhandler.h
+        src/command.cpp
+        src/command.h
+        src/eventloop.cpp
+        src/eventloop.h
+        src/monitor.cpp
+        src/monitor.h
+        src/non-portable.cpp
+        src/non-portable.h
+        src/proxymanager.cpp
+        src/proxymanager.h
+        src/redis-proxy-config.cpp
+        src/redis-proxy-config.h
+        src/redis-servant-select.cpp
+        src/redis-servant-select.h
+        src/redisproto.cpp
+        src/redisproto.h
+        src/redisproxy.cpp
+        src/redisproxy.h
+        src/redisservant.cpp
+        src/redisservant.h
+        src/redisservantgroup.cpp
+        src/redisservantgroup.h
+        src/top-key.cpp
+        src/top-key.h)
+
 add_executable(${PROJECT_TEST_NAME} ${TEST_SRC_FILES})
 add_dependencies(${PROJECT_TEST_NAME} googletest)
 if(NOT WIN32)
@@ -86,6 +137,6 @@ else()
             )
 endif()
 
-target_link_libraries(${PROJECT_TEST_NAME} pthread)
+target_link_libraries(${PROJECT_TEST_NAME} event event_pthreads jemalloc pthread)
 
 add_test(test1 ${PROJECT_TEST_NAME})
