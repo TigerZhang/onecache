@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.3)
 project(onecache)
+set(PROJECT_NAME_STR onecache)
 
-include_directories("src" "deps/resp")
+set(EXT_PROJECTS_DIR ${PROJECT_SOURCE_DIR}/deps)
+
+include_directories("src" "deps/resp" "deps/gtest/src/googletest/googletest/include")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -ggdb")
 
 set(SOURCE_FILES
@@ -59,3 +62,30 @@ set(SOURCE_FILES
 
 add_executable(onecache ${SOURCE_FILES})
 target_link_libraries(onecache event event_pthreads jemalloc pthread)
+
+add_subdirectory(${EXT_PROJECTS_DIR}/gtest)
+enable_testing()
+set(PROJECT_TEST_NAME ${PROJECT_NAME_STR}_test)
+include_directories(${GTEST_INCLUDE_DIRS})
+file(GLOB TEST_SRC_FILES ${PROJECT_SOURCE_DIR}/test/*.cpp)
+add_executable(${PROJECT_TEST_NAME} ${TEST_SRC_FILES})
+add_dependencies(${PROJECT_TEST_NAME} googletest)
+if(NOT WIN32)
+    target_link_libraries(${PROJECT_TEST_NAME}
+            ${GTEST_LIBS_DIR}/libgtest.a
+            ${GTEST_LIBS_DIR}/libgtest_main.a
+            )
+else()
+    target_link_libraries(${PROJECT_TEST_NAME}
+            debug ${GTEST_LIBS_DIR}/DebugLibs/${CMAKE_FIND_LIBRARY_PREFIXES}gtest${CMAKE_FIND_LIBRARY_SUFFIXES}
+            optimized ${GTEST_LIBS_DIR}/ReleaseLibs/${CMAKE_FIND_LIBRARY_PREFIXES}gtest${CMAKE_FIND_LIBRARY_SUFFIXES}
+            )
+    target_link_libraries(${PROJECT_TEST_NAME}
+            debug ${GTEST_LIBS_DIR}/DebugLibs/${CMAKE_FIND_LIBRARY_PREFIXES}gtest_main${CMAKE_FIND_LIBRARY_SUFFIXES}
+            optimized ${GTEST_LIBS_DIR}/ReleaseLibs/${CMAKE_FIND_LIBRARY_PREFIXES}gtest_main${CMAKE_FIND_LIBRARY_SUFFIXES}
+            )
+endif()
+
+target_link_libraries(${PROJECT_TEST_NAME} pthread)
+
+add_test(test1 ${PROJECT_TEST_NAME})
