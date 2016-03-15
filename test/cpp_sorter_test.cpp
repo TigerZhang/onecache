@@ -33,14 +33,14 @@ TEST(RedisProxy, findNextMigration)
     RedisProxy p;
     RedisServantGroup sg, *psg;
 
-    p.SetSlotMigrating(0, &sg);
+    p.setSlotMigrating(0, &sg);
     int i;
     psg = p.findNextMigration(&i);
     EXPECT_EQ(&sg, psg);
     EXPECT_EQ(0, i);
 
     RedisServantGroup sg2;
-    p.SetSlotMigrating(3, &sg2);
+    p.setSlotMigrating(3, &sg2);
     psg = p.findNextMigration(&i);
     EXPECT_EQ(&sg2, psg);
     EXPECT_EQ(3, i);

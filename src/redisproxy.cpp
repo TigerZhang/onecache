@@ -110,7 +110,7 @@ struct MigrateCommandContext {
     RedisServantGroup* origGroup;
 };
 
-void MigrateFinishedHandler(ClientPacketPtr migPacket, void* arg)
+void migrateOneKeyFinishedHandler(ClientPacketPtr migPacket, void *arg)
 {
     MigrateCommandContext*migContext = (MigrateCommandContext*)arg;
     ClientPacketPtr origPacket = migContext->originPacket;
@@ -140,17 +140,63 @@ void MigrateFinishedHandler(ClientPacketPtr migPacket, void* arg)
     delete migPacket;
 }
 
+void dbsizeFinishedHandler(ClientPacketPtr dbsizePacket, void *arg)
+{
+    RedisProxy *context = dbsizePacket->proxy();
+    int64_t slotNum = (int64_t)arg;
+
+    if (dbsizePacket->finishedState == ClientPacket::RequestFinished) {
+//        LOG(Logger::INFO, "dbsize recv %s", dbsizePacket->recvBuff.data());
+        LOG(Logger::DEBUG, "dbsize send %s", dbsizePacket->sendBuff.data());
+//        dbsizePacket->sendBuff
+        resp::decoder dec;
+        resp::result res = dec.decode(dbsizePacket->sendBuff.data(),
+                                      dbsizePacket->sendBuff.size());
+        resp::unique_value rep = res.value();
+        int64_t dbsize = rep.integer();
+        LOG(Logger::INFO, "dbsize %d", dbsize);
+        if (dbsize == 0) {
+            LOG(Logger::INFO, "migration of slot %d done", slotNum);
+            // TODO: migration done
+            assert(context->slotNumToRedisServerGroup(slotNum));
+            RedisServantGroup *migrationTargetGroup = context->getSlotMigrating(slotNum);
+            assert(migrationTargetGroup);
+            // step 1: update slot -> server group configuration
+            // stop migration (update hash map)
+            context->setGroupMappingValue(slotNum, migrationTargetGroup);
+            context->setSlotMigrating(slotNum, NULL);
+            // step 2: rewrite config
+            // - update server group lists, add the new group(the migration target)
+            // - update the hash map (slot number -> group)
+            // - remove migration config of this slot
+            RedisProxyCfg::instance()->rewriteConfig(context);
+        }
+    }
+
+    delete dbsizePacket;
+}
+
 ClientPacketPtr
-ClientPacket::MakeAPacket(int commandType, ClientPacketPtr refPacket, char *command) {
+ClientPacket::newPacket(int commandType, ClientPacketPtr refPacket, char *command) {
 
     ClientPacketPtr pack = ClientPacket::Construct();
     pack->eventLoop = refPacket->eventLoop;
     pack->finished_func = defaultFinishedHandler;
     pack->finished_arg = NULL;
     pack->commandType = -1;
-    pack->eventLoop = refPacket->eventLoop;
 
     return pack;
+}
+
+ClientPacketPtr
+ClientPacket::newPacket(EventLoopPtr eventLoop) {
+    ClientPacketPtr p = ClientPacket::Construct();
+    p->eventLoop = eventLoop;
+    p->finished_func = defaultFinishedHandler;
+    p->finished_arg = NULL;
+    p->commandType = -1;
+
+    return p;
 }
 
 static Monitor dummy;
@@ -183,22 +229,38 @@ RedisProxy::~RedisProxy(void)
     }
 }
 
-void checkMigrationState(evutil_socket_t, short, void *arg) {
+void RedisProxy::checkMigrationState(evutil_socket_t, short, void *arg) {
     RedisProxy *p = (RedisProxy *)arg;
 
-    int index;
-    RedisServantGroup *sg = p->findNextMigration(&index);
-    if (sg) {
-        LOG(Logger::INFO, "migrating n %s s %d", sg->groupName(), index);
+    int slotNum;
+    RedisServantGroup *sg = p->findNextMigration(&slotNum);
+    if (sg == NULL) {
+        return;
     }
 
+    LOG(Logger::INFO, "migrating n %s s %d", sg->groupName(), slotNum);
+
+    RedisServantGroup *source_sg = p->slotNumToRedisServerGroup(slotNum);
+
+    assert(p != NULL);
+
+    // check dbsize of source redis
+    // if dbsize is 0, the migration has done
+    ClientPacketPtr pack = p->newDbsizePacket(p->eventLoop());
+    pack->finished_arg = (void *)((int64_t)slotNum);
+    RedisServant *servant = source_sg->findUsableServant(pack);
+    if (servant) {
+        servant->handle(pack);
+    } else {
+        pack->setFinishedState(ClientPacket::RequestError);
+    }
 //    LOG(Logger::INFO, "timer checkMigrationState");
 }
 
 bool RedisProxy::run(const HostAddress& addr)
 {
     e.setTimerPersist(eventLoop(), checkMigrationState, this);
-    e.active(100);
+    e.active(1000);
 
     if (isRunning()) {
         return false;
@@ -226,14 +288,15 @@ bool RedisProxy::run(const HostAddress& addr)
         {"HASHMAPPING", 11, -1, onHashMapping, NULL},
         {"ADDKEYMAPPING", 13, -1, onAddKeyMapping, NULL},
         {"DELKEYMAPPING", 13, -1, onDelKeyMapping, NULL},
-        {"SHOWMAPPING", 11, -1, onShowMapping, NULL},
-        {"POOLINFO", 8, -1, onPoolInfo, NULL},
+        {"SHOWMAPPING", 11, -1,   onShowMapping, NULL},
+        {"POOLINFO", 8, -1,       onPoolInfo, NULL},
 
         // YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
-        {"YMIGRATE", 8, -1, MigrateServer, this},
-        {"MIGSTAT", 7, -1, ShowMigrateStatus, this},
-        {"SHUTDOWN", 8, -1, onShutDown, this},
-        {"LOG", 3, -1, SetLogLevel, this},
+        {"YMIGRATE", 8, -1,       migrateSlot,       this},
+        {"MIGSTAT", 7, -1,        ShowMigrateStatus, this},
+        {"SHUTDOWN", 8, -1,       onShutDown,        this},
+        {"LOG", 3, -1,            SetLogLevel,       this},
+        {"SLOT", 4, -1,           showSlotNum,       this}
     };
     RedisCommandTable::instance()->registerCommand(cmds, sizeof(cmds)/sizeof(RedisCommand));
 
@@ -265,17 +328,18 @@ void RedisProxy::addRedisGroup(RedisServantGroup *group)
     }
 }
 
-bool RedisProxy::setGroupMappingValue(int hashValue, RedisServantGroup *group)
+bool RedisProxy::setGroupMappingValue(int slotNum, RedisServantGroup *group)
 {
-    if (hashValue >= 0 && hashValue < MaxHashValue) {
-        LOG(Logger::Message, "set group[%d] group %s", hashValue, group ? group->groupName() : "NULL");
-        m_hashMapping[hashValue] = group;
+    if (slotNum >= 0 && slotNum < MaxHashValue) {
+        LOG(Logger::VERBOSE, "set group[%d] group %s", slotNum,
+            group ? group->groupName() : "NULL");
+        m_hashMapping[slotNum] = group;
         return true;
     }
     return false;
 }
 
-RedisServantGroup *RedisProxy::SlotNumToRedisServerGroup(int slotNum) const
+RedisServantGroup *RedisProxy::slotNumToRedisServerGroup(int slotNum) const
 {
     if (slotNum >= 0 && slotNum < m_maxHashValue) {
         return m_hashMapping[slotNum];
@@ -317,14 +381,14 @@ RedisServantGroup *RedisProxy::mapToGroup(const char* key, int len)
 }
 
 ClientPacketPtr
-RedisProxy::MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
-                              RedisServantGroup *origGroup,
-                              RedisServantGroup *migrationTargetServantGroup) {
-    // 1. send migrate command to origin redis server
+RedisProxy::newMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
+                             RedisServantGroup *origGroup,
+                             RedisServantGroup *migrationTargetServantGroup) {
+    // step 1: send migrate command to origin redis server
     RedisServant *rs = migrationTargetServantGroup->findUsableServant(origPacket);
     HostAddress addr = rs->connectionPool()->redisAddress();
 
-    ClientPacketPtr migPacket = ClientPacket::MakeAPacket(-1, origPacket, NULL);
+    ClientPacketPtr migPacket = ClientPacket::newPacket(-1, origPacket, NULL);
     resp::encoder<resp::buffer> enc;
     // MIGRATE host port key|"" destination-db timeout
     char port[16];
@@ -339,13 +403,30 @@ RedisProxy::MakeMigratePacket(const char *key, int len, ClientPacketPtr origPack
     migCmdCxt->origGroup = origGroup;
 
     migPacket->recvBuff.appendFormatString(command.c_str());
-    migPacket->finished_func = MigrateFinishedHandler;
+    migPacket->finished_func = migrateOneKeyFinishedHandler;
     migPacket->finished_arg = migCmdCxt;
     migPacket->parseRecvBuffer();
 
     return migPacket;
 
-    // 2. after migration done, send original request to target redis server
+    // step 2: after migration done, send original request to target redis server
+    // in the callback of migrate command.
+}
+
+ClientPacketPtr
+RedisProxy::newDbsizePacket(EventLoopPtr eventLoop) {
+    ClientPacketPtr dbsizePacket = ClientPacket::newPacket(eventLoop);
+    dbsizePacket->server = this;
+    dbsizePacket->finished_func = dbsizeFinishedHandler;
+
+    resp::encoder<resp::buffer> enc;
+    std::vector<resp::buffer> buffers = enc.encode("DBSIZE");
+    std::string command = std::string(buffers.front().data(), buffers.front().size());
+
+    dbsizePacket->recvBuff.appendFormatString(command.c_str());
+    dbsizePacket->parseRecvBuffer();
+
+    return dbsizePacket;
 }
 
 void RedisProxy::handleClientPacket(const char *key, int len, ClientPacketPtr packet)
@@ -364,7 +445,7 @@ void RedisProxy::handleClientPacket(const char *key, int len, ClientPacketPtr pa
     if (migrationTargetServantGroup != NULL) {
         LOG(Logger::VVERBOSE, "slot %d is migrating to %s", index, migrationTargetServantGroup->groupName());
 
-        packet = MakeMigratePacket(key/*origin*/, len/*origin*/, packet/*origin*/, group, migrationTargetServantGroup);
+        packet = newMigratePacket(key/*origin*/, len/*origin*/, packet/*origin*/, group, migrationTargetServantGroup);
     }
 
     RedisServant* servant = group->findUsableServant(packet);
@@ -514,28 +595,28 @@ void RedisProxy::vipHandler(socket_t sock, short, void* arg)
     }
 }
 
-void
-RedisProxy::checkMigrationStat(int, short, void *arg)
-{
-    MigrationPairPtr mpp = (MigrationPairPtr)arg;
-    LOG(Logger::INFO, "checkMigrationStat");
-    // TODO: implement checkMigrationStat
-    // if migration done (keyspace of source server is empty
-    //   1. update the configuration file
-    //     - update slot -> server
-    //     - delete migration config
-    delete mpp;
+//void
+//RedisProxy::checkMigrationStat(int, short, void *arg)
+//{
+//    MigrationPairPtr mpp = (MigrationPairPtr)arg;
+//    LOG(Logger::INFO, "checkMigrationStat");
+//    // TODO: implement checkMigrationStat
+//    // if migration done (keyspace of source server is empty
+//    //   1. update the configuration file
+//    //     - update slot -> server
+//    //     - delete migration config
+//    delete mpp;
+//
+//    // if migration is still ongoing
+//    //   1. restart the timer and check the status later
+//}
 
-    // if migration is still ongoing
-    //   1. restart the timer and check the status later
-}
-
 void
-RedisProxy::StartSlotMigration(int slot, RedisServantGroup *sg) {
-    SetSlotMigrating(slot, sg);
+RedisProxy::startSlotMigration(int slot, RedisServantGroup *sg) {
+    setSlotMigrating(slot, sg);
 
     // Start a timer for this slot, checking migration state
-    RedisServantGroup *origSg = SlotNumToRedisServerGroup(slot);
+    RedisServantGroup *origSg = slotNumToRedisServerGroup(slot);
     RedisServant *serv = origSg->master(0);
 
 //    MigrationPairPtr mpp = new MigrationPair;
@@ -545,7 +626,7 @@ RedisProxy::StartSlotMigration(int slot, RedisServantGroup *sg) {
 //    Event migrationCheckEvent;
 //    migrationCheckEvent.setTimer(eventLoop(), checkMigrationStat, mpp);
 //    int ret = migrationCheckEvent.active(500);
-//    LOG(Logger::INFO, "StartSlotMigration start timer %d", ret);
+//    LOG(Logger::INFO, "startSlotMigration start timer %d", ret);
 }
 
 static RedisServant *CreateRedisServant(EventLoop *ev_loop, string hostname, int port)
@@ -580,7 +661,7 @@ static RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, st
     return group;
 }
 
-RedisServantGroup *RedisProxy::CreateMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port) {
+RedisServantGroup *RedisProxy::createMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port) {
     char addr[256];
     // check if connection existed by address
     snprintf(addr, 256, "%s:%d", hostname.c_str(), port);

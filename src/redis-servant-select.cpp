@@ -130,8 +130,10 @@ public:
 
 static CommandTypeInit init;
 
-ReadBalancePolicy::ReadBalancePolicy(void) {
+ReadBalancePolicy::ReadBalancePolicy(void)
+{
     m_readCnt = 0;
+    name = POLICY_READ_BALANCE;
 }
 
 ReadBalancePolicy::~ReadBalancePolicy(void) {}

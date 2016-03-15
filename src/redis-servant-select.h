@@ -56,7 +56,7 @@ private:
 class MasterOnlyPolicy : public RedisServantGroupPolicy
 {
 public:
-    MasterOnlyPolicy(void){}
+    MasterOnlyPolicy(void) { name = POLICY_MASTER_ONLY; }
     ~MasterOnlyPolicy(void){}
     virtual RedisServant* selectServant(RedisServantGroup* g, ClientPacket* p);
 private:

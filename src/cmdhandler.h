@@ -24,32 +24,20 @@
 #include "redisproxy.h"
 
 void onStandardKeyCommand(ClientPacket*, void*);
-
 void onDelCommand(ClientPacket*, void*);
-
 void onPingCommand(ClientPacket*, void*);
-
 void onShowCommand(ClientPacket*, void*);
-
 void onMGetCommand(ClientPacket*, void*);
-
 void onMSetCommand(ClientPacket*, void*);
-
 void onHashMapping(ClientPacket* packet, void*);
-
 void onAddKeyMapping(ClientPacket* packet, void*);
-
 void onDelKeyMapping(ClientPacket* packet, void*);
-
 void onShowMapping(ClientPacket* packet, void*);
-
 void onPoolInfo(ClientPacket* packet, void*);
-
 void onShutDown(ClientPacket* packet, void*);
-
-void MigrateServer(ClientPacket *packet, void *);
-
+void migrateSlot(ClientPacket *packet, void *);
 void ShowMigrateStatus(ClientPacket *packet, void *);
-
 void SetLogLevel(ClientPacket *packet, void *);
+void showSlotNum(ClientPacket *p, void *context);
+
 #endif

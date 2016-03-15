@@ -270,7 +270,7 @@ void CProxyMonitor::proxyStarted(RedisProxy* proxy) {
     topValue.arg = this;
     RedisCommandTable::instance()->registerCommand(&topValue, 1);
 
-    m_topKeyEnable = CRedisProxyCfg::instance()->topKeyEnable();
+    m_topKeyEnable = RedisProxyCfg::instance()->topKeyEnable();
     if (m_topKeyEnable) {
         m_topKeyRecorderThread.start();
     }
@@ -464,7 +464,7 @@ void CFormatMonitorToIoBuf::formatProxyToIoBuf(CProxyMonitor& proxyMonirot) {
     RedisProxy* proxy = proxyMonirot.redisProxy();
     m_iobuf->appendFormatString("GroupCount=%d\n", proxy->groupCount());
     m_iobuf->appendFormatString("VipEnabled=%s\n", proxy->vipEnabled()?"Yes":"No");
-    m_iobuf->appendFormatString("TopKeyEnabled=%s\n", CRedisProxyCfg::instance()->topKeyEnable()?"Yes":"No");
+    m_iobuf->appendFormatString("TopKeyEnabled=%s\n", RedisProxyCfg::instance()->topKeyEnable() ? "Yes" : "No");
     if (proxyMonirot.redisProxy()->vipEnabled()) {
         m_iobuf->appendFormatString("VipName=%s\n", proxy->vipName());
         m_iobuf->appendFormatString("VipAddress=%s\n", proxy->vipAddress());

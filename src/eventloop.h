@@ -88,6 +88,7 @@ public:
     EventLoop m_loop;
 };
 
+typedef EventLoop* EventLoopPtr;
 
 class EventLoopThreadPool
 {

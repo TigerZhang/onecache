@@ -49,7 +49,7 @@ bool RedisConnection::connect(const HostAddress& addr)
         sock.close();
         return false;
     } else {
-        LOG(Logger::INFO, "Connected %s:%d", addr.ip(), addr.port());
+//        LOG(Logger::INFO, "Connected %s:%d", addr.ip(), addr.port());
     }
 
     sock.setOption(SOL_SOCKET, SO_SNDTIMEO, (char*)&defaultVal, sizeof(timeval));

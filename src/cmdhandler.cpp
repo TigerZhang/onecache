@@ -278,7 +278,7 @@ void onHashMapping(ClientPacket* packet, void*)
 
     if (proxy->setGroupMappingValue(hashValue, group)) {
         packet->sendBuff.append("+OK\r\n");
-        CRedisProxyCfg::instance()->saveProxyLastState(proxy);
+        RedisProxyCfg::instance()->rewriteConfig(proxy);
     } else {
         packet->sendBuff.append("-Invalid hash value\r\n");
     }
@@ -313,7 +313,7 @@ void onAddKeyMapping(ClientPacket* packet, void*)
 
     packet->sendBuff.append("+OK\r\n");
     packet->setFinishedState(ClientPacket::RequestFinished);
-    CRedisProxyCfg::instance()->saveProxyLastState(proxy);
+    RedisProxyCfg::instance()->rewriteConfig(proxy);
 }
 
 void onDelKeyMapping(ClientPacket* packet, void*)
@@ -334,7 +334,7 @@ void onDelKeyMapping(ClientPacket* packet, void*)
 
     packet->sendBuff.append("+OK\r\n");
     packet->setFinishedState(ClientPacket::RequestFinished);
-    CRedisProxyCfg::instance()->saveProxyLastState(proxy);
+    RedisProxyCfg::instance()->rewriteConfig(proxy);
 }
 
 void onShowMapping(ClientPacket* packet, void*)
@@ -346,7 +346,7 @@ void onShowMapping(ClientPacket* packet, void*)
     packet->sendBuff.appendFormatString("%-15s %-15s\n", "HASH_VALUE", "GROUP_NAME");
     for (int i = 0; i < proxy->maxHashValue(); ++i) {
         packet->sendBuff.appendFormatString("%-15d %-15s\n",
-                                            i, proxy->SlotNumToRedisServerGroup(i)->groupName());
+                                            i, proxy->slotNumToRedisServerGroup(i)->groupName());
     }
     packet->sendBuff.append("\n");
     packet->sendBuff.append("[KEY MAPPING]\n");
@@ -438,8 +438,23 @@ void SetLogLevel(ClientPacket *p, void*)
     p->setFinishedState(ClientPacket::RequestFinished);
 }
 
+void showSlotNum(ClientPacket *p, void *context)
+{
+    RedisProtoParseResult &req = p->recvParseResult;
+    if (req.tokenCount == 2) {
+        RedisProxy *proxy = (RedisProxy *)context;
+        int hash = proxy->KeyToIndex(req.tokens[1].s, req.tokens[1].len);
+        p->sendBuff.appendFormatString("+%d\r\n", hash);
+        p->setFinishedState(ClientPacket::RequestFinished);
+        return;
+    }
+
+    p->sendBuff.append("-hash <key>");
+    p->setFinishedState(ClientPacket::WrongNumberOfArguments);
+}
+
 // YMIGRATE <slot_num> <target_server_ip_address> <target_server_port>
-void MigrateServer(ClientPacket *packet, void *data)
+void migrateSlot(ClientPacket *packet, void *data)
 {
     RedisProxy *context = (RedisProxy *)data;
 
@@ -454,10 +469,10 @@ void MigrateServer(ClientPacket *packet, void *data)
     string hostname(req.tokens[2].s, req.tokens[2].len);
     string port(req.tokens[3].s, req.tokens[3].len);
 
-    RedisServantGroup *group = RedisProxy::CreateMigrationTarget(context, slotNum, hostname, std::stoi(port));
-    context->StartSlotMigration(slotNum, group);
+    RedisServantGroup *group = RedisProxy::createMigrationTarget(context, slotNum, hostname, std::stoi(port));
+    context->startSlotMigration(slotNum, group);
 
-    if (CRedisProxyCfg::instance()->saveProxyLastState(context)) {
+    if (RedisProxyCfg::instance()->rewriteConfig(context)) {
         packet->sendBuff.append("+OK\r\n");
         packet->setFinishedState(ClientPacket::RequestFinished);
     } else {
@@ -485,7 +500,7 @@ void ShowMigrateStatus(ClientPacketPtr packet, void *data)
             snprintf(buf, 512, "%d->%s; ", i, sg->groupName());
             migrationInfos.push_back(std::string(buf));
             LOG(Logger::INFO, "Migrating slot %d from %s to %s",
-                i, context->SlotNumToRedisServerGroup(i)->groupName(), sg->groupName());
+                i, context->slotNumToRedisServerGroup(i)->groupName(), sg->groupName());
 //            packet->sendBuff.appendFormatString("+%d\t%s\r\n", i, sg->groupName());
         }
     }

@@ -55,7 +55,7 @@ void ProxyManager::setGroupTTL(RedisServantGroup* group, int seconds, bool resto
     //Update group old hash values
     info->oldHashValues.clear();
     for (int i = 0; i < m_proxy->maxHashValue(); ++i) {
-        if (m_proxy->SlotNumToRedisServerGroup(i) == group) {
+        if (m_proxy->slotNumToRedisServerGroup(i) == group) {
             info->oldHashValues.push_back(i);
         }
     }
@@ -72,7 +72,7 @@ void ProxyManager::removeGroup(RedisServantGroup* group)
     std::set<RedisServantGroup*> otherGroups;
     int maxHashValue = m_proxy->maxHashValue();
     for (int i = 0; i < maxHashValue; ++i) {
-        RedisServantGroup* mp = m_proxy->SlotNumToRedisServerGroup(i);
+        RedisServantGroup* mp = m_proxy->slotNumToRedisServerGroup(i);
         if (mp == group) {
             groupOldHashValue.push_back(i);
             m_proxy->setGroupMappingValue(i, NULL);

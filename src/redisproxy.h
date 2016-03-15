@@ -76,7 +76,9 @@ public:
     RedisConnection* redisSocket;                   //Redis socket
 
     // Create a new ClientPacket using contexts of a reference packet
-    static ClientPacketPtr MakeAPacket(int commandType, ClientPacketPtr refPacket, char *command);
+    static ClientPacketPtr newPacket(int commandType, ClientPacketPtr refPacket, char *command);
+    static ClientPacketPtr newPacket(EventLoopPtr eventLoop);
+
     static ClientPacketPtr Construct() { return new ClientPacket; }
 };
 
@@ -132,13 +134,13 @@ public:
     void stop(void);
 
     void addRedisGroup(RedisServantGroup* group);
-    bool setGroupMappingValue(int hashValue, RedisServantGroup* group);
+    bool setGroupMappingValue(int slotNum, RedisServantGroup *group);
     void setHashFunction(HashFunc func) { m_hashFunc = func; }
     void setMaxHashValue(int value) { m_maxHashValue = value; }
 
     HashFunc hashFunction(void) const { return m_hashFunc; }
     int maxHashValue(void) const { return m_maxHashValue; }
-    RedisServantGroup* SlotNumToRedisServerGroup(int slotNum) const;
+    RedisServantGroup*slotNumToRedisServerGroup(int slotNum) const;
 
     int groupCount(void) const { return m_groups.size(); }
     RedisServantGroup* group(int index) const { return m_groups.at(index); }
@@ -169,25 +171,26 @@ public:
     // net.ipv4.tcp_fin_timeout = 5
     // net.ipv4.tcp_tw_reuse = 1
     //
-    // TODO: implement StartSlotMigration/SlotMigrationDone
+    // TODO: implement startSlotMigration/SlotMigrationDone
     //
-    // implement StartSlotMigration method
+    // implement startSlotMigration method
     // - set slot in migrating status. i.e., create a migration target and update the slot migration map.
     // - start a timer to check if migration is done by checking if source server is empty.
     // implement SlotMigrationDone callback
     // - update slot mapping. i.e., set slot -> target server.
     // - remove slot from migration map.
     // - update configration file.
-    void StartSlotMigration(int slot, RedisServantGroup *sg);
+    void startSlotMigration(int slot, RedisServantGroup *sg);
     RedisServantGroup * GetSlotMigration(int slot) { return m_hashSlotMigrating[slot%MaxHashValue]; }
-    ClientPacketPtr MakeMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
-                                                    RedisServantGroup *origGroup,
-                                                    RedisServantGroup *migrationTargetServantGroup);
+    ClientPacketPtr newMigratePacket(const char *key, int len, ClientPacketPtr origPacket,
+                                     RedisServantGroup *origGroup,
+                                     RedisServantGroup *migrationTargetServantGroup);
+    ClientPacketPtr newDbsizePacket(EventLoopPtr eventLoop);
 
-    static RedisServantGroup *CreateMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port);
+    static RedisServantGroup *createMigrationTarget(RedisProxy *context, int slotNum, std::string hostname, int port);
 
-    // exposed for unit test ONLY
-    void SetSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot%MaxHashValue] = sg; }
+    void setSlotMigrating(int slot, RedisServantGroup *sg) { m_hashSlotMigrating[slot % MaxHashValue] = sg; }
+    RedisServantGroup * getSlotMigrating(int slotNum) { return m_hashSlotMigrating[slotNum]; }
 
 private:
     static void vipHandler(socket_t, short, void*);
@@ -221,7 +224,7 @@ private:
     RedisProxy(const RedisProxy&);
     RedisProxy& operator =(const RedisProxy&);
 
-    static void checkMigrationStat(int, short, void *arg);
+    static void checkMigrationState(int, short, void *arg);
 };
 
 class MigrationPair

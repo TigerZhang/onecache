@@ -35,6 +35,13 @@ public:
     virtual RedisServant* selectServant(RedisServantGroup* group, ClientPacketPtr);
 
     static RedisServantGroupPolicy* createPolicy(const char* name);
+
+    const std::string &getName() const {
+        return name;
+    }
+
+protected:
+    std::string name;
 };
 
 

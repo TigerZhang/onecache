@@ -48,7 +48,7 @@ void COperateXml::xml_print() {
     m_docPointer->Print();
 }
 
-const TiXmlElement* COperateXml::get_rootElement() {
+const TiXmlElement* COperateXml::getRootElement() {
     return m_rootElement;
 }
 
@@ -85,17 +85,25 @@ void CHostInfo::set_policy(int p)        { policy = p;}
 void CHostInfo::set_priority(int p)      { priority = p;}
 void CHostInfo::set_connectionNum(int p) { connection_num = p;}
 
-CGroupInfo::CGroupInfo()
+CGroupInfo::CGroupInfo() : m_hashMin(-1), m_hashMax(-1)
 {
     memset(m_groupName, '\0', sizeof(m_groupName));
     memset(m_groupPolicy, '\0', sizeof(m_groupPolicy));
+    m_hosts.clear();
+}
+
+CGroupInfo::CGroupInfo(const CGroupInfo &info)
+        : m_hashMin(info.m_hashMin), m_hashMax(info.m_hashMax) {
+    memcpy(m_groupName, info.m_groupName, sizeof(m_groupName)/sizeof(m_groupName[0]));
+    memcpy(m_groupPolicy, info.m_groupPolicy, sizeof(m_groupPolicy)/sizeof(m_groupPolicy[0]));
+    m_hosts = info.m_hosts;
 }
 
 CGroupInfo::~CGroupInfo() {}
 
-CRedisProxyCfg::CRedisProxyCfg() {
+RedisProxyCfg::RedisProxyCfg() {
     m_operateXmlPointer = new COperateXml;
-    m_hashInfo.hash_value_max = 0;
+    m_hashInfo.hash_value_max = RedisProxyCfgChecker::REDIS_PROXY_HASH_MAX;
     m_threadNum = 0;
     m_port = 0;
     memset(m_vip.if_alias_name, '\0', sizeof(m_vip.if_alias_name));
@@ -110,40 +118,40 @@ CRedisProxyCfg::CRedisProxyCfg() {
     m_groupInfo = new GroupInfoList;
 }
 
-CRedisProxyCfg::~CRedisProxyCfg() {
+RedisProxyCfg::~RedisProxyCfg() {
     if(NULL != m_operateXmlPointer) delete m_operateXmlPointer;
     delete m_hashMappingList;
     delete m_keyMappingList;
     delete m_groupInfo;
 }
 
-CRedisProxyCfg *CRedisProxyCfg::instance()
+RedisProxyCfg *RedisProxyCfg::instance()
 {
-    static CRedisProxyCfg* cfg = NULL;
+    static RedisProxyCfg * cfg = NULL;
     if (cfg == NULL) {
-        cfg = new CRedisProxyCfg;
+        cfg = new RedisProxyCfg;
     }
     return cfg;
 }
 
-void CRedisProxyCfg::set_groupName(CGroupInfo& group, const char* name) {
+void RedisProxyCfg::set_groupName(CGroupInfo& group, const char* name) {
     int size = strlen(name);
     memcpy(group.m_groupName, name, size+1);
 }
 
-void CRedisProxyCfg::set_hashMin(CGroupInfo& group, int num) {
+void RedisProxyCfg::set_hashMin(CGroupInfo& group, int num) {
     group.m_hashMin = num;
 }
 
-void CRedisProxyCfg::set_hashMax(CGroupInfo& group, int num) {
+void RedisProxyCfg::set_hashMax(CGroupInfo& group, int num) {
     group.m_hashMax = num;
 }
 
-void CRedisProxyCfg::addHost(CGroupInfo& group, CHostInfo& p) {
+void RedisProxyCfg::addHost(CGroupInfo& group, CHostInfo& p) {
     group.m_hosts.push_back(p);
 }
 
-void CRedisProxyCfg::set_groupAttribute(TiXmlAttribute *groupAttr, CGroupInfo& pGroup) {
+void RedisProxyCfg::set_groupAttribute(TiXmlAttribute *groupAttr, CGroupInfo& pGroup) {
     for (; groupAttr != NULL; groupAttr = groupAttr->Next()) {
         const char* name = groupAttr->Name();
         const char* value = groupAttr->Value();
@@ -167,7 +175,7 @@ void CRedisProxyCfg::set_groupAttribute(TiXmlAttribute *groupAttr, CGroupInfo& p
     }
 }
 
-void CRedisProxyCfg::set_hostAttribute(TiXmlAttribute *addrAttr, CHostInfo& pHostInfo) {
+void RedisProxyCfg::set_hostAttribute(TiXmlAttribute *addrAttr, CHostInfo& pHostInfo) {
      for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
         const char* name = addrAttr->Name();
         const char* value = addrAttr->Value();
@@ -206,7 +214,7 @@ void CRedisProxyCfg::set_hostAttribute(TiXmlAttribute *addrAttr, CHostInfo& pHos
 
 }
 
-void CRedisProxyCfg::set_hostEle(TiXmlElement* hostContactEle, CHostInfo& hostInfo) {
+void RedisProxyCfg::set_hostEle(TiXmlElement* hostContactEle, CHostInfo& hostInfo) {
     for (; hostContactEle != NULL; hostContactEle = hostContactEle->NextSiblingElement()) {
         const char* strValue;
         strValue = hostContactEle->Value();
@@ -250,7 +258,7 @@ void CRedisProxyCfg::set_hostEle(TiXmlElement* hostContactEle, CHostInfo& hostIn
     }
 }
 
-void CRedisProxyCfg::getRootAttr(const TiXmlElement* pRootNode) {
+void RedisProxyCfg::getRootAttr(const TiXmlElement* pRootNode) {
     TiXmlAttribute *addrAttr = (TiXmlAttribute *)pRootNode->FirstAttribute();
     for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
         const char* name = addrAttr->Name();
@@ -264,10 +272,10 @@ void CRedisProxyCfg::getRootAttr(const TiXmlElement* pRootNode) {
             m_port = atoi(value);
             continue;
         }
-        if (0 == strcasecmp(name, "hash_value_max")) {
-            m_hashInfo.hash_value_max = atoi(value);
-            continue;
-        }
+//        if (0 == strcasecmp(name, "hash_value_max")) {
+//            m_hashInfo.hash_value_max = atoi(value);
+//            continue;
+//        }
         if (0 == strcasecmp(name, "log_file")) {
             strcpy(m_logFile, value);
             continue;
@@ -287,7 +295,7 @@ void CRedisProxyCfg::getRootAttr(const TiXmlElement* pRootNode) {
     }
 }
 
-void CRedisProxyCfg::getVipAttr(const TiXmlElement* vidNode) {
+void RedisProxyCfg::getVipAttr(const TiXmlElement* vidNode) {
     TiXmlAttribute *addrAttr = (TiXmlAttribute *)vidNode->FirstAttribute();
     for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
         const char* name = addrAttr->Name();
@@ -309,10 +317,10 @@ void CRedisProxyCfg::getVipAttr(const TiXmlElement* vidNode) {
     }
 }
 
-void CRedisProxyCfg::setHashMappingNode(TiXmlElement* pNode) {
+void RedisProxyCfg::setHashMappingNode(TiXmlElement* pNode) {
     TiXmlElement* pNext = pNode->FirstChildElement();
     for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
-        CHashMapping hashMap;
+        HashMapping hashMap;
         if (0 == strcasecmp(pNext->Value(), "hash")) {
             TiXmlAttribute *addrAttr = pNext->FirstAttribute();
             for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
@@ -333,7 +341,7 @@ void CRedisProxyCfg::setHashMappingNode(TiXmlElement* pNode) {
 }
 
 
-void CRedisProxyCfg::setGroupOption(const TiXmlElement* vidNode) {
+void RedisProxyCfg::setGroupOption(const TiXmlElement* vidNode) {
     TiXmlAttribute *addrAttr = (TiXmlAttribute *)vidNode->FirstAttribute();
     for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
         const char* name = addrAttr->Name();
@@ -369,10 +377,10 @@ void CRedisProxyCfg::setGroupOption(const TiXmlElement* vidNode) {
 
 
 
-void CRedisProxyCfg::setKeyMappingNode(TiXmlElement* pNode) {
+void RedisProxyCfg::setKeyMappingNode(TiXmlElement* pNode) {
     TiXmlElement* pNext = pNode->FirstChildElement();
     for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
-        CKeyMapping hashMap;
+        KeyMapping hashMap;
         if (0 == strcasecmp(pNext->Value(), "key")) {
             TiXmlAttribute *addrAttr = pNext->FirstAttribute();
             for (; addrAttr != NULL; addrAttr = addrAttr->Next()) {
@@ -392,7 +400,7 @@ void CRedisProxyCfg::setKeyMappingNode(TiXmlElement* pNode) {
     }
 }
 
-void CRedisProxyCfg::LoadMigrationSlots(TiXmlElement *pNode) {
+void RedisProxyCfg::LoadMigrationSlots(TiXmlElement *pNode) {
     TiXmlElement *pNext = pNode->FirstChildElement();
     for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
         if (strcasecmp(pNext->Value(), "migrate") == 0) {
@@ -420,7 +428,7 @@ void CRedisProxyCfg::LoadMigrationSlots(TiXmlElement *pNode) {
     }
 }
 
-void CRedisProxyCfg::getGroupNode(TiXmlElement* pNode) {
+void RedisProxyCfg::getGroupNode(TiXmlElement* pNode) {
     CGroupInfo groupTmp;
     set_groupAttribute(pNode->FirstAttribute(), groupTmp);
     TiXmlElement* pNext = pNode->FirstChildElement();
@@ -454,6 +462,7 @@ void CRedisProxyCfg::getGroupNode(TiXmlElement* pNode) {
             addHost(groupTmp, hostInfo);
         }
     }
+//    CGroupInfoPtr group = std::make_shared<CGroupInfo>(CGroupInfo(groupTmp));
     m_groupInfo->push_back(groupTmp);
 }
 
@@ -476,45 +485,33 @@ bool GetNodePointerByName(
 }
 
 
-bool CRedisProxyCfg::saveProxyLastState(RedisProxy* proxy) {
-    TiXmlElement* pRootNode = (TiXmlElement*)m_operateXmlPointer->get_rootElement();
-    string nodeHash = "hash_mapping";
-    TiXmlElement* pOldHashMap;
-    if (GetNodePointerByName(pRootNode, nodeHash, pOldHashMap)) {
-        pRootNode->RemoveChild(pOldHashMap);
-    }
-    TiXmlElement hashMappingNode("hash_mapping");
-    for (int i = 0; i < proxy->maxHashValue(); ++i) {
-        TiXmlElement hashNode("hash");
-        hashNode.SetAttribute("value", i);
-        hashNode.SetAttribute("group_name", proxy->SlotNumToRedisServerGroup(i)->groupName());
-        hashMappingNode.InsertEndChild(hashNode);
-    }
-    pRootNode->InsertEndChild(hashMappingNode);
+bool RedisProxyCfg::rewriteConfig(RedisProxy *proxy) {
+    TiXmlElement* pRootNode = (TiXmlElement*) m_operateXmlPointer->getRootElement();
+    // TODO: rewrite the group list regarding RedisProxy::m_hashMapping
+    rewriteGroups(proxy, pRootNode);
+    rewriteSlotMap(proxy, pRootNode);
+    rewriteKeyMap(proxy, pRootNode);
+    rewriteMigrationSlots(proxy, pRootNode);
 
-    // key mapping
-    string nodeKey = "key_mapping";
-    TiXmlElement* pKey;
-    if (GetNodePointerByName(pRootNode, nodeKey, pKey)) {
-        pRootNode->RemoveChild(pKey);
-    }
-    TiXmlElement keyMappingNode("key_mapping");
+    // add time
+    time_t now = time(NULL);
+    char fileName[512];
+    struct tm* current_time = localtime(&now);
+    sprintf(fileName,"onecache%d%02d%02d%02d.xml",
+        current_time->tm_year + 1900,
+        current_time->tm_mon + 1,
+        current_time->tm_mday,
+        current_time->tm_hour);
 
-    StringMap<RedisServantGroup*>& keyMapping = proxy->keyMapping();
-    StringMap<RedisServantGroup*>::iterator it = keyMapping.begin();
-    for (; it != keyMapping.end(); ++it) {
-        String key = it->first;
-        TiXmlElement keyNode("key");
-        keyNode.SetAttribute("key_name", key.data());
-        RedisServantGroup* group = it->second;
-        if (group != NULL) {
-            keyNode.SetAttribute("group_name", group->groupName());
-        }
-        keyMappingNode.InsertEndChild(keyNode);
+    int rc = std::rename(configFile, fileName);
+    if (rc) {
+        LOG(Logger::Error, "rename config file failed %d", rc);
     }
-    pRootNode->InsertEndChild(keyMappingNode);
+    bool ok = m_operateXmlPointer->m_docPointer->SaveFile(configFile);
+    return ok;
+}
 
-    // migration slots
+void RedisProxyCfg::rewriteMigrationSlots(RedisProxy *proxy, TiXmlElement *pRootNode) const {// migration slots
     string migrations = "migration_slots";
     TiXmlElement* p;
     if (GetNodePointerByName(pRootNode, migrations, p)) {
@@ -538,32 +535,56 @@ bool CRedisProxyCfg::saveProxyLastState(RedisProxy* proxy) {
         }
     }
     pRootNode->InsertEndChild(migrationSlots);
+}
 
-    // add time
-    time_t now = time(NULL);
-    char fileName[512];
-    struct tm* current_time = localtime(&now);
-    sprintf(fileName,"onecache%d%02d%02d%02d.xml",
-        current_time->tm_year + 1900,
-        current_time->tm_mon + 1,
-        current_time->tm_mday,
-        current_time->tm_hour);
-
-    int rc = std::rename(configFile, fileName);
-    if (rc) {
-        LOG(Logger::Error, "rename config file failed %d", rc);
+void RedisProxyCfg::rewriteKeyMap(RedisProxy *proxy, TiXmlElement *pRootNode) const {// key mapping
+    string nodeKey = "key_mapping";
+    TiXmlElement* pKey;
+    if (GetNodePointerByName(pRootNode, nodeKey, pKey)) {
+        pRootNode->RemoveChild(pKey);
     }
-    bool ok = m_operateXmlPointer->m_docPointer->SaveFile(configFile);
-    return ok;
+    TiXmlElement keyMappingNode(nodeKey.c_str());
+
+    StringMap<RedisServantGroup*>& keyMapping = proxy->keyMapping();
+    StringMap<RedisServantGroup*>::iterator it = keyMapping.begin();
+    for (; it != keyMapping.end(); ++it) {
+        String key = it->first;
+        TiXmlElement keyNode("key");
+        keyNode.SetAttribute("key_name", key.data());
+        RedisServantGroup* group = it->second;
+        if (group != NULL) {
+            keyNode.SetAttribute("group_name", group->groupName());
+        }
+        keyMappingNode.InsertEndChild(keyNode);
+    }
+    pRootNode->InsertEndChild(keyMappingNode);
+}
+
+void RedisProxyCfg::rewriteSlotMap(const RedisProxy *proxy, TiXmlElement *pRootNode) const {
+    return;
+
+//    string nodeHash = "hash_mapping";
+    TiXmlElement* pOldHashMap;
+    if (GetNodePointerByName(pRootNode, hashMapName, pOldHashMap)) {
+        pRootNode->RemoveChild(pOldHashMap);
+    }
+    TiXmlElement hashMappingNode(hashMapName.c_str());
+    for (int i = 0; i < proxy->maxHashValue(); ++i) {
+        TiXmlElement hashNode("hash");
+        hashNode.SetAttribute("value", i);
+        hashNode.SetAttribute("group_name", proxy->slotNumToRedisServerGroup(i)->groupName());
+        hashMappingNode.InsertEndChild(hashNode);
+    }
+    pRootNode->InsertEndChild(hashMappingNode);
 }
 
 
-bool CRedisProxyCfg::loadCfg(const char* file) {
+bool RedisProxyCfg::loadCfg(const char* file) {
     configFile = file;
 
     if (!m_operateXmlPointer->xml_open(file)) return false;
 
-    const TiXmlElement* pRootNode = m_operateXmlPointer->get_rootElement();
+    const TiXmlElement* pRootNode = m_operateXmlPointer->getRootElement();
     getRootAttr(pRootNode);
     TiXmlElement* pNode = (TiXmlElement*)pRootNode->FirstChildElement();
     for (; pNode != NULL; pNode = pNode->NextSiblingElement()) {
@@ -594,25 +615,25 @@ bool CRedisProxyCfg::loadCfg(const char* file) {
             continue;
         }
 
-        if (0 == strcasecmp(pNode->Value(), "hash")) {
-            TiXmlElement* pNext = pNode->FirstChildElement();
-            if (NULL == pNext) continue;
-            for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
-                if (0 == strcasecmp(pNext->Value(), "hash_value_max")) {
-                    if (pNext->GetText() == NULL) {
-                        m_hashInfo.hash_value_max = 0;
-                        continue;
-                    }
-                    m_hashInfo.hash_value_max = atoi(pNext->GetText());
-                }
-            }
-            continue;
-        }
-        if (0 == strcasecmp(pNode->Value(), "group")) {
+//        if (0 == strcasecmp(pNode->Value(), "hash")) {
+//            TiXmlElement* pNext = pNode->FirstChildElement();
+//            if (NULL == pNext) continue;
+//            for (; pNext != NULL; pNext = pNext->NextSiblingElement()) {
+//                if (0 == strcasecmp(pNext->Value(), "hash_value_max")) {
+//                    if (pNext->GetText() == NULL) {
+//                        m_hashInfo.hash_value_max = 0;
+//                        continue;
+//                    }
+//                    m_hashInfo.hash_value_max = atoi(pNext->GetText());
+//                }
+//            }
+//            continue;
+//        }
+        if (0 == strcasecmp(pNode->Value(), groupName.c_str())) {
             getGroupNode(pNode);
             continue;
         }
-        if (0 == strcasecmp(pNode->Value(), "hash_mapping")) {
+        if (0 == strcasecmp(pNode->Value(), hashMapName.c_str())) {
             setHashMappingNode(pNode);
             continue;
         }
@@ -634,23 +655,23 @@ bool CRedisProxyCfg::loadCfg(const char* file) {
 }
 
 
-bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
+bool RedisProxyCfgChecker::isValid(RedisProxyCfg *pCfg, char *errMsg, int len)
 {
     const int hash_value_max = pCfg->hashInfo()->hash_value_max;
     if (hash_value_max > REDIS_PROXY_HASH_MAX) {
-        errMsg = "hash_value_max is not greater than 1024";
+        snprintf(errMsg, len, "hash_value_max is not greater than 1024");
         return false;
     }
 
     int port = pCfg->port();
     if (port <= 0 || port > 65535) {
-        errMsg = "onecache's port is invalid";
+        snprintf(errMsg, len, "port is invalid");
         return false;
     }
 
     int thread_num = pCfg->threadNum();
     if (thread_num <= 0) {
-        errMsg = "onecache's thread_num is invalid";
+        snprintf(errMsg, len, "thread_num is invalid");
         return false;
     }
 
@@ -658,9 +679,9 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
     string groupNameBuf[512];
     int groupCnt_ = pCfg->groupCnt();
     for (int i = 0; i < groupCnt_; ++i) {
-        const CGroupInfo* group = pCfg->group(i);
+        const CGroupInfoPtr group = pCfg->group(i);
         if (0 == strlen(group->groupName())) {
-            errMsg = "group name cannot be empty";
+            snprintf(errMsg, len, "group name cannot be empty");
             return false;
         }
         bool empty = false;
@@ -671,7 +692,7 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
             if (0 != strcasecmp(group->groupPolicy(), POLICY_READ_BALANCE) &&
                 0 != strcasecmp(group->groupPolicy(), POLICY_MASTER_ONLY))
             {
-                errMsg = "group's policy is wrong, it should be  read_balance or master_only";
+                snprintf(errMsg, len, "invalid policy, it should be read_balance or master_only");
                 return false;
             }
         }
@@ -679,27 +700,27 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
         groupNameBuf[i] = group->groupName();
         for (int j = 0; j < i; ++j) {
             if (groupNameBuf[i] == groupNameBuf[j]) {
-                errMsg = "having the same group name";
+                snprintf(errMsg, len, "group name exsited");
                 return false;
             }
         }
 
         if (group->hashMin() > group->hashMax()) {
-            errMsg = "hash_min > hash_max";
+            snprintf(errMsg, len, "hash_min > hash_max");
             return false;
         }
         for (int j = group->hashMin(); j <= group->hashMax(); ++j) {
             if (j < 0 || j > REDIS_PROXY_HASH_MAX) {
-                errMsg = "hash value is invalid";
+                snprintf(errMsg, len, "hash value is invalid");
                 return false;
             }
             if (j >= hash_value_max) {
-                errMsg = "hash value is out of range";
+                snprintf(errMsg, len, "hash value is out of range");
                 return false;
             }
 
             if (barray[j]) {
-                errMsg = "hash range error";
+                snprintf(errMsg, len, "hash range error");
                 return false;
             }
             barray[j] = true;
@@ -707,34 +728,34 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
     }
     for (int i = 0; i < hash_value_max; ++i) {
         if (!barray[i]) {
-            errMsg = "hash values are not complete";
+            snprintf(errMsg, len, "hash values are not complete");
             return false;
         }
     }
 
     const GroupOption* groupOp = pCfg->groupOption();
     if (groupOp->backend_retry_interval <= 0) {
-        errMsg = "backend_retry_interval invalid";
+        snprintf(errMsg, len, "backend_retry_interval invalid");
         return false;
     }
 
     if (groupOp->backend_retry_limit <= 0) {
-        errMsg = "backend_retry_limit invalid";
+        snprintf(errMsg, len, "backend_retry_limit invalid");
         return false;
     }
 
     if (groupOp->auto_eject_group) {
         if (groupOp->group_retry_time <= 0) {
-            errMsg = "group_retry_time invalid";
+            snprintf(errMsg, len, "group_retry_time invalid");
             return false;
         }
     }
 
     int hashMapCnt = pCfg->hashMapCnt();
     for (int i = 0; i < hashMapCnt; ++i) {
-        const CHashMapping* p = pCfg->hashMapping(i);
+        const HashMapping * p = pCfg->hashMapping(i);
         if (p->hash_value < 0) {
-            errMsg = "hash_mapping's value < 0";
+            snprintf(errMsg, len, "hash_mapping value < 0");
             return false;
         }
         bool exist = false;
@@ -745,14 +766,14 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
             }
         }
         if (!exist) {
-            errMsg = "hash_mapping's group name doesn't exist";
+            snprintf(errMsg, len, "group name [%s] of hash_mapping doesn't exist", p->group_name);
             return false;
         }
     }
 
     int keyMapCnt = pCfg->keyMapCnt();
     for (int i = 0; i < keyMapCnt; ++i) {
-        const CKeyMapping* p = pCfg->keyMapping(i);
+        const KeyMapping * p = pCfg->keyMapping(i);
         std::string groupName = p->group_name;
         bool exist = false;
         for (int j = 0; j < groupCnt_; ++j) {
@@ -762,7 +783,7 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
             }
         }
         if (!exist) {
-            errMsg = "key_mapping's group name doesn't exist";
+            snprintf(errMsg, len, "group name [%s] of key_mapping doesn't exist", p->group_name);
             return false;
         }
     }
@@ -770,6 +791,121 @@ bool CRedisProxyCfgChecker::isValid(CRedisProxyCfg* pCfg, const char*& errMsg)
     return true;
 }
 
+// TODO: rewriteGroups test cases
+bool RedisProxyCfg::rewriteGroups(RedisProxy *proxy, TiXmlElement *pRootNode) {
+    //
+    // group: | g1 | g1 | g1 | g2 | g2 | g3 | g3 | g3 |
+    // index:   0    1    2    3    4    5    6    7
+    //                         ^                   ^
+    //                         |                   |
+    // previous group: g1, current group: g2       |
+    // hash min: 0, hash max: 2                    |
+    //                                             |
+    //                                  previous group: g3, current group: g3
+    //                                  hash min: 5, hash max: 7
+    std::vector<std::shared_ptr<CGroupInfo>> newGroupInfoList;
+//typedef std::shared_ptr<CGroupInfo> CGroupInfoPtr;
+//    GroupInfoList *newGroupInfoList = new GroupInfoList;
+    RedisServantGroup *preSg = NULL;
+    int hashMin = 0, hashMax = 0;
+    int i;
+    for (i=0; i < proxy->maxHashValue(); i++) {
+        RedisServantGroup *sg = proxy->slotNumToRedisServerGroup(i);
+        if (preSg == NULL) {
+            hashMin = i;
+            preSg = sg;
+        } else {
+            if (preSg != sg) {
+                // if the current group is a new one, than the hash max of
+                // previous group should be (current index - 1)
+                hashMax = i - 1;
+                {
+                    std::shared_ptr<CGroupInfo> groupInfo = std::make_shared<CGroupInfo>();
+                    if (foundAGroup(groupInfo, hashMin, hashMax, i, preSg)) {
+                        newGroupInfoList.push_back(groupInfo);
+                    }
+                }
+                preSg = sg;
+                hashMax = hashMin = i;
+            }
+        }
+    }
+    {
+        std::shared_ptr<CGroupInfo> groupInfo = std::make_shared<CGroupInfo>();
+        if (foundAGroup(groupInfo, hashMin, i-1, i, preSg)) {
+            newGroupInfoList.push_back(groupInfo);
+        }
+    }
 
+    // remove current groups
+    TiXmlElement *oldGroup;
+    while (GetNodePointerByName(pRootNode, groupName, oldGroup)) {
+        pRootNode->RemoveChild(oldGroup);
+    }
 
+    for (std::vector<std::shared_ptr<CGroupInfo>>::iterator it = newGroupInfoList.begin();
+            it != newGroupInfoList.end(); ++it) {
+        LOG(Logger::INFO, "rewrite group %s", (*it)->groupName());
+        rewriteOneGroup(pRootNode, *it);
+    }
 
+    return true;
+}
+
+void RedisProxyCfg::rewriteOneGroup(TiXmlElement *pRootNode, const shared_ptr<CGroupInfo> &pInfo) const {
+// insert new group
+    TiXmlElement groupNode(groupName.c_str());
+//    groupNode.SetAttribute("name", pInfo->groupName());
+    char name[128];
+    snprintf(name, 128, "group_%d_%d", pInfo->hashMin(), pInfo->hashMax());
+    groupNode.SetAttribute("name", name);
+    groupNode.SetAttribute("hash_min", pInfo->hashMin());
+    groupNode.SetAttribute("hash_max", pInfo->hashMax());
+    groupNode.SetAttribute("policy", pInfo->groupPolicy());
+    HostInfoList infoList = pInfo->hosts();
+    for (std::vector<CHostInfo>::iterator it = infoList.begin();
+            it != infoList.end(); ++it) {
+        TiXmlElement hostNode(hostName.c_str());
+        hostNode.SetAttribute("host_name", it->get_hostName().c_str());
+        hostNode.SetAttribute("ip", it->get_ip().c_str());
+        hostNode.SetAttribute("port", it->get_port());
+        hostNode.SetAttribute("master", it->get_master());
+        hostNode.SetAttribute("connection_num", it->get_connectionNum());
+        groupNode.InsertEndChild(hostNode);
+    }
+    pRootNode->InsertEndChild(groupNode);
+}
+
+bool RedisProxyCfg::foundAGroup(std::shared_ptr<CGroupInfo> groupInfo, int hashMin, int hashMax,
+                                int currentIndex, const RedisServantGroup *sg) const {
+    if (hashMax >= hashMin) {
+        LOG(Logger::INFO, "found a group min %d max %d i %d g %s",
+            hashMin, hashMax, currentIndex, sg->groupName());
+        // found a new group, append group info to list
+        groupInfo->setName(sg->groupName());
+        groupInfo->setPolicy(sg->policy()->getName().c_str());
+        groupInfo->setHashMin(hashMin);
+        groupInfo->setHashMax(hashMax);
+
+        CHostInfo hostInfo;
+        RedisServant *s = sg->master(0);
+        RedisServant::Option opt = s->option();
+
+        std::string name = std::string(opt.name);
+        std::string ip = std::string(s->redisAddress().ip());
+
+        hostInfo.set_hostName(name);
+        hostInfo.set_ip(ip);
+        hostInfo.set_port(s->redisAddress().port());
+        hostInfo.set_master(true);
+        hostInfo.set_connectionNum(opt.poolSize);
+
+        HostInfoList infoList;
+        infoList.push_back(hostInfo);
+
+        groupInfo->setHosts(infoList);
+        return true;
+    }
+
+    return false;
+}

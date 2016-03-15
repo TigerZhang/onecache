@@ -24,6 +24,8 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <memory>
+#include <bits/shared_ptr.h>
 
 #include "tinyxml/tinyxml.h"
 #include "tinyxml/tinystr.h"
@@ -41,7 +43,7 @@ public:
     bool xml_open(const char* xml_path);
 
     virtual void xml_print();
-    const TiXmlElement* get_rootElement();
+    const TiXmlElement*getRootElement();
 public:
     // xml file operate pointer
     TiXmlDocument* m_docPointer;
@@ -96,27 +98,27 @@ struct SVipInfo {
 };
 
 
-class CHashMapping {
+class HashMapping {
 public:
-    CHashMapping() {
+    HashMapping() {
         hash_value = 0;
         memset(group_name, '\0', sizeof(group_name));
     }
     int  hash_value;
     char group_name[512];
 };
-typedef std::vector<CHashMapping> HashMappingList;
+typedef std::vector<HashMapping> HashMappingList;
 
-class CKeyMapping {
+class KeyMapping {
 public:
-    CKeyMapping() {
+    KeyMapping() {
         memset(key, '\0', sizeof(key));
         memset(group_name, '\0', sizeof(group_name));
     }
     char key[512];
     char group_name[512];
 };
-typedef std::vector<CKeyMapping> KeyMappingList;
+typedef std::vector<KeyMapping> KeyMappingList;
 
 class MigrationOption {
 public:
@@ -148,6 +150,7 @@ class CGroupInfo
 {
 public:
     CGroupInfo();
+    CGroupInfo(const CGroupInfo &info);
     ~CGroupInfo();
     const char* groupName() const { return m_groupName; }
     const char* groupPolicy() const { return m_groupPolicy; }
@@ -158,16 +161,36 @@ public:
         strcpy(m_groupPolicy, p);
         m_groupPolicy[strlen(p) + 1] = '\0';
     }
+    void setName(const char *name) {
+        snprintf(m_groupName, 128, "%s", name);
+    }
+    void setPolicy(const char *policy) {
+        snprintf(m_groupPolicy, 128, "%s", policy);
+    }
+    void setHashMin(int m_hashMin) {
+        CGroupInfo::m_hashMin = m_hashMin;
+    }
+
+    void setHashMax(int m_hashMax) {
+        CGroupInfo::m_hashMax = m_hashMax;
+    }
+
+    void setHosts(const HostInfoList &m_hosts) {
+        CGroupInfo::m_hosts = m_hosts;
+    }
+
 private:
     char          m_groupName[128];
     char          m_groupPolicy[128];
     int           m_hashMin;
     int           m_hashMax;
     HostInfoList  m_hosts;
-    friend class CRedisProxyCfg;
+    friend class RedisProxyCfg;
 };
 typedef std::vector<CGroupInfo> GroupInfoList;
-
+//typedef std::vector<std::shared_ptr<CGroupInfo>> GroupInfoList;
+//typedef std::shared_ptr<CGroupInfo> CGroupInfoPtr;
+typedef CGroupInfo* CGroupInfoPtr;
 
 struct GroupOption {
     GroupOption(){
@@ -187,20 +210,20 @@ struct GroupOption {
 
 
 // read the config
-class CRedisProxyCfg
+class RedisProxyCfg
 {
 private:
-    CRedisProxyCfg();
-    ~CRedisProxyCfg();
+    RedisProxyCfg();
+    ~RedisProxyCfg();
 
 public:
-    static CRedisProxyCfg* instance();
+    static RedisProxyCfg * instance();
 
     bool loadCfg(const char* xml_path);
-    bool saveProxyLastState(RedisProxy* proxy);
+    bool rewriteConfig(RedisProxy *proxy);
 
     int groupCnt()const {return m_groupInfo->size();}
-    const CGroupInfo* group(int index)const {return &(*m_groupInfo)[index];}
+    const CGroupInfoPtr group(int index)const {return &(*m_groupInfo)[index];}
     const SHashInfo*  hashInfo()const {return &m_hashInfo;}
     const GroupOption* groupOption()const {return &m_groupOption;}
     const SVipInfo*  vipInfo()const {return &m_vip;}
@@ -213,8 +236,8 @@ public:
 
     int hashMapCnt(){ return m_hashMappingList->size();}
     int keyMapCnt(){ return m_keyMappingList->size();}
-    const CHashMapping* hashMapping(int index)const {return &(*m_hashMappingList)[index];}
-    const CKeyMapping* keyMapping(int index)const {return &(*m_keyMappingList)[index];}
+    const HashMapping * hashMapping(int index)const {return &(*m_hashMappingList)[index];}
+    const KeyMapping * keyMapping(int index)const {return &(*m_keyMappingList)[index];}
 
     std::vector<MigrationOption>    migrationOptions;
     COperateXml*     m_operateXmlPointer;
@@ -232,6 +255,13 @@ private:
     bool             m_topKeyEnable;
     GroupOption      m_groupOption;
     const char       *configFile;
+
+    const string    groupName = "group";
+    const string    hostName = "host";
+    const string    hashMapName = "hash_mapping";
+    const string    hashMinName = "hash_min";
+    const string    hashMaxName = "hash_max";
+
 private:
     void set_groupName(CGroupInfo& group, const char* name);
     void set_hashMin(CGroupInfo& group, int num);
@@ -249,18 +279,31 @@ private:
     void setGroupOption(const TiXmlElement* pNode);
     void LoadMigrationSlots(TiXmlElement *pNode);
 private:
-    CRedisProxyCfg(const CRedisProxyCfg&);
-    CRedisProxyCfg& operator =(const CRedisProxyCfg&);
+    RedisProxyCfg(const RedisProxyCfg &);
+    RedisProxyCfg & operator =(const RedisProxyCfg &);
+
+    bool rewriteGroups(RedisProxy *proxy, TiXmlElement *pRootNode);
+
+    bool foundAGroup(std::shared_ptr<CGroupInfo> groupInfo, int hashMin, int hashMax,
+                     int currentIndex, const RedisServantGroup *sg) const;
+
+    void rewriteOneGroup(TiXmlElement *pRootNode, const shared_ptr<CGroupInfo> &pInfo) const;
+
+    void rewriteSlotMap(const RedisProxy *proxy, TiXmlElement *pRootNode) const;
+
+    void rewriteKeyMap(RedisProxy *proxy, TiXmlElement *pRootNode) const;
+
+    void rewriteMigrationSlots(RedisProxy *proxy, TiXmlElement *pRootNode) const;
 };
 
 // check the cfg is valid or not
-class CRedisProxyCfgChecker
+class RedisProxyCfgChecker
 {
 public:
     enum {REDIS_PROXY_HASH_MAX = 1024};
-    CRedisProxyCfgChecker();
-    ~CRedisProxyCfgChecker();
-    static bool isValid(CRedisProxyCfg* pCfg, const char*& err);
+    RedisProxyCfgChecker();
+    ~RedisProxyCfgChecker();
+    static bool isValid(RedisProxyCfg *pCfg, char *errmsg, int len);
 };
 
 #endif

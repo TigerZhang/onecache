@@ -52,7 +52,7 @@ void setupSignal(void)
 
 void startOneCache(void)
 {
-    CRedisProxyCfg* cfg = CRedisProxyCfg::instance();
+    RedisProxyCfg * cfg = RedisProxyCfg::instance();
 
     setupSignal();
 
@@ -83,7 +83,7 @@ void startOneCache(void)
     proxy.setEjectAfterRestoreEnabled(groupOption->eject_after_restore);
 
     for (int i = 0; i < cfg->groupCnt(); ++i) {
-        const CGroupInfo* info = cfg->group(i);
+        const CGroupInfoPtr info = cfg->group(i);
 
         RedisServantGroup* group = new RedisServantGroup;
         RedisServantGroupPolicy* policy = RedisServantGroupPolicy::createPolicy(info->groupPolicy());
@@ -115,29 +115,29 @@ void startOneCache(void)
             proxy.setGroupMappingValue(i, group);
         }
 
-        for (int i = 0; i < cfg->hashMapCnt(); ++i) {
-            const CHashMapping* mapping = cfg->hashMapping(i);
-            RedisServantGroup* group = proxy.group(mapping->group_name);
-            proxy.setGroupMappingValue(mapping->hash_value, group);
-        }
+    }
+    for (int i = 0; i < cfg->hashMapCnt(); ++i) {
+        const HashMapping * mapping = cfg->hashMapping(i);
+        RedisServantGroup* group = proxy.group(mapping->group_name);
+        proxy.setGroupMappingValue(mapping->hash_value, group);
+    }
 
-        for (int i = 0; i < cfg->keyMapCnt(); ++i) {
-            const CKeyMapping* mapping = cfg->keyMapping(i);
-            RedisServantGroup* group = proxy.group(mapping->group_name);
-            if (group != NULL) {
-                proxy.addGroupKeyMapping(mapping->key, strlen(mapping->key), group);
-            }
+    for (int i = 0; i < cfg->keyMapCnt(); ++i) {
+        const KeyMapping * mapping = cfg->keyMapping(i);
+        RedisServantGroup* group = proxy.group(mapping->group_name);
+        if (group != NULL) {
+            proxy.addGroupKeyMapping(mapping->key, strlen(mapping->key), group);
         }
     }
-extern RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port);
+    extern RedisServantGroup * CreateGroup(RedisProxy *context, string groupName, string hostname, int port);
     std::for_each(cfg->migrationOptions.begin(), cfg->migrationOptions.end(),
                   [](MigrationOption &option) {
                       std::cout << "Start: migration option s " << option.slotNum
                               << " a " << option.addr << " p " << option.port
                               << std::endl;
                       RedisServantGroup *group =
-                              RedisProxy::CreateMigrationTarget(currentProxy, option.slotNum, option.addr, option.port);
-                      currentProxy->StartSlotMigration(option.slotNum, group);
+                              RedisProxy::createMigrationTarget(currentProxy, option.slotNum, option.addr, option.port);
+                      currentProxy->startSlotMigration(option.slotNum, group);
                   }
     );
 
@@ -162,15 +162,15 @@ int main(int argc, char** argv)
         cfgFile = argv[1];
     }
 
-    CRedisProxyCfg* cfg = CRedisProxyCfg::instance();
+    RedisProxyCfg * cfg = RedisProxyCfg::instance();
     if (!cfg->loadCfg(cfgFile)) {
         LOG(Logger::Error, "Failed to read config file");
         return 1;
     }
 
-    const char* errInfo;
-    if (!CRedisProxyCfgChecker::isValid(cfg, errInfo)) {
-        LOG(Logger::Error, "Invalid configuration: %s", errInfo);
+    char errMsg[512];
+    if (!RedisProxyCfgChecker::isValid(cfg, errMsg, 512)) {
+        LOG(Logger::Error, "Invalid configuration: %s", errMsg);
         return 1;
     }
 
